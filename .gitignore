@@ -1,0 +1,38 @@
+# Python environments
+DocumentRAG/
+DocumentRAG_py312_backup/
+venv/
+env/
+__pycache__/
+*.pyc
+
+# Secrets
+.env
+
+# Large Model Files
+*.pth
+*.pt
+*.onnx
+*.bin
+*.wav
+models/
+checkpoints/
+
+# Unused/Legacy folders (if not deleted yet)
+CosyVoice/
+index-tts/
+piper/
+
+# IDE settings
+.vscode/
+.idea/
+
+# System
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Artifacts
+.gemini/
