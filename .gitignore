@@ -36,3 +36,4 @@ Thumbs.db
 
 # Artifacts
 .gemini/
+data_cache/
