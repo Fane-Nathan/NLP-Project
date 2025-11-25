@@ -17,6 +17,8 @@ __pycache__/
 *.wav
 models/
 checkpoints/
+models/hoax_indobert_lora/checkpoint-*/
+data/
 
 # Unused/Legacy folders (if not deleted yet)
 CosyVoice/

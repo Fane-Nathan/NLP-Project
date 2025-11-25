@@ -50,8 +50,22 @@ python src/main.py --mode summarize --model groq --input_text "path/to/file.txt"
 # Evaluation mode (not yet implemented)
 python src/main.py --mode evaluate --model textrank
 ```
+### Hoax Detection & Credibility Analysis
+```bash
+# Train hoax classifier (first time only)
+python -m src.hoax_detection.train_lora --data_path data/hoax_dataset.csv --epochs 3
 
-## Architecture
+# Run credibility analysis
+python -m src.main --mode credibility --input_text "Your text" --hoax_model models/hoax_indobert_lora
+
+# Summarize with credibility filtering
+python -m src.main --mode summarize --model textrank --input_file data/docs.json --credibility
+```
+
+**Architecture:**
+- IndoBERT + LoRA (99.5% F1-Score)
+- Outlier Detection (2σ strict threshold)
+- Combined scoring (60% hoax, 40% outlier)
 
 ### JARVIS Voice Assistant Stack
 
