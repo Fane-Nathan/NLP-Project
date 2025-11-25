@@ -18,7 +18,7 @@ __pycache__/
 models/
 checkpoints/
 models/hoax_indobert_lora/checkpoint-*/
-data/
+C:\Users\felix\OneDrive\Documents\NLP Project\data
 
 # Unused/Legacy folders (if not deleted yet)
 CosyVoice/
