@@ -129,7 +129,8 @@ class HoaxClassifier:
             # Load base model
             base_model = AutoModelForSequenceClassification.from_pretrained(
                 base_model_name,
-                num_labels=2
+                num_labels=2,
+                use_safetensors=True
             )
             
             # Load LoRA adapters

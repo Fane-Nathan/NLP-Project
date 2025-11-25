@@ -47,7 +47,7 @@ from peft import (
 
 # Constants
 MODEL_NAME = "indobenchmark/indobert-base-p1"
-MAX_LENGTH = 256  # Reduced for memory efficiency
+MAX_LENGTH = 128  # Reduced for memory efficiency
 LORA_R = 8        # LoRA rank (lower = less memory)
 LORA_ALPHA = 16   # Scaling factor
 LORA_DROPOUT = 0.1
@@ -121,17 +121,42 @@ def load_turnbackhoax_data(
         Tuple of (texts, labels).
     """
     # Detect file format
-    if file_path.endswith('.json'):
+    if os.path.isdir(file_path):
+        print(f"[Data] Loading all files from directory: {file_path}")
+        dfs = []
+        for filename in os.listdir(file_path):
+            full_path = os.path.join(file_path, filename)
+            if filename.endswith('.xlsx') or filename.endswith('.xls'):
+                print(f"  - Loading {filename}...")
+                dfs.append(pd.read_excel(full_path))
+            elif filename.endswith('.csv'):
+                print(f"  - Loading {filename}...")
+                dfs.append(pd.read_csv(full_path))
+            elif filename.endswith('.parquet'):
+                print(f"  - Loading {filename}...")
+                dfs.append(pd.read_parquet(full_path))
+        
+        if not dfs:
+            raise ValueError(f"No supported files found in {file_path}")
+        
+        df = pd.concat(dfs, ignore_index=True)
+        print(f"[Data] Combined {len(dfs)} files. Total rows: {len(df)}")
+        
+    elif file_path.endswith('.json'):
         df = pd.read_json(file_path)
     elif file_path.endswith('.csv'):
         df = pd.read_csv(file_path)
+    elif file_path.endswith('.parquet'):
+        df = pd.read_parquet(file_path)
+    elif file_path.endswith('.xlsx') or file_path.endswith('.xls'):
+        df = pd.read_excel(file_path)
     else:
         raise ValueError(f"Unsupported file format: {file_path}")
     
     # Validate columns
     if config.text_column not in df.columns:
         # Try common alternatives
-        alternatives = ['text', 'content', 'article', 'body', 'narasi']
+        alternatives = ['isi_berita', 'text', 'content', 'article', 'body', 'narasi', 'Clean Narasi']
         for alt in alternatives:
             if alt in df.columns:
                 config.text_column = alt
@@ -279,7 +304,7 @@ def train_lora_model(
     output_dir: str = "models/hoax_indobert_lora",
     num_epochs: int = 5,
     batch_size: int = 4,
-    gradient_accumulation_steps: int = 4,
+    gradient_accumulation_steps: int = 2,
     learning_rate: float = 2e-4,
     use_synthetic: bool = False
 ) -> str:
@@ -334,7 +359,8 @@ def train_lora_model(
         MODEL_NAME,
         num_labels=2,
         id2label={0: "VALID", 1: "HOAX"},
-        label2id={"VALID": 0, "HOAX": 1}
+        label2id={"VALID": 0, "HOAX": 1},
+        use_safetensors=True  # Fix for CVE-2025-32434
     )
     
     # Enable gradient checkpointing for memory efficiency
@@ -368,27 +394,33 @@ def train_lora_model(
         output_dir=output_dir,
         num_train_epochs=num_epochs,
         per_device_train_batch_size=batch_size,
-        per_device_eval_batch_size=batch_size,
-        gradient_accumulation_steps=gradient_accumulation_steps,
+        per_device_eval_batch_size=batch_size * 2,  # Larger eval batch (no gradients)
+        gradient_accumulation_steps=2,  # Reduced from 4
         learning_rate=learning_rate,
         weight_decay=0.01,
         warmup_ratio=0.1,
         
         # Memory optimizations
-        fp16=torch.cuda.is_available(),  # Mixed precision
-        optim="adamw_torch",  # Standard optimizer (use "adamw_8bit" if bitsandbytes available)
-        gradient_checkpointing=True,
+        fp16=True,
+        optim="adamw_torch_fused",  # Faster fused optimizer
+        gradient_checkpointing=False,  # Disable for speed (if VRAM allows)
         
-        # Evaluation & logging
-        eval_strategy="epoch",
-        save_strategy="epoch",
-        logging_steps=10,
+        # Speed optimizations
+        dataloader_num_workers=2,  # Parallel data loading
+        dataloader_pin_memory=True,  # Faster GPU transfer
+        
+        # Less frequent evaluation (saves time)
+        eval_strategy="steps",
+        eval_steps=500,  # Every 500 steps instead of every epoch
+        save_strategy="steps",
+        save_steps=500,
+        logging_steps=50,
+        
         load_best_model_at_end=True,
         metric_for_best_model="f1",
         greater_is_better=True,
         
-        # Misc
-        report_to="none",  # Disable wandb/tensorboard
+        report_to="none",
         push_to_hub=False,
         seed=42
     )
