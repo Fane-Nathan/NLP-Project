@@ -15,7 +15,7 @@ __pycache__/
 *.onnx
 *.bin
 *.wav
-models/
+/models/
 checkpoints/
 models/hoax_indobert_lora/checkpoint-*/
 C:\Users\felix\OneDrive\Documents\NLP Project\data

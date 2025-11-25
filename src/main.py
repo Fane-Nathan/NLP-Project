@@ -28,14 +28,6 @@ import os
 import json
 from typing import List, Dict, Optional
 
-from src.preprocessing import TextPreprocessor
-from src.models.textrank import TextRankSummarizer
-from src.models.lexrank import LexRankSummarizer
-
-# Credibility analysis imports moved to function scope to allow partial execution
-# from src.hoax_detection import CredibilityAnalyzer, CredibilityReport
-
-
 def load_documents(file_path: str) -> List[str]:
     """
     Load documents from file.
@@ -161,9 +153,16 @@ def summarize_documents(
     
     # Initialize model
     if model_name == "textrank":
+        from src.models.textrank import TextRankSummarizer
         summarizer = TextRankSummarizer(num_sentences=num_sentences)
     elif model_name == "lexrank":
+        from src.models.lexrank import LexRankSummarizer
         summarizer = LexRankSummarizer(num_sentences=num_sentences)
+    elif model_name == "mt5":
+        from src.models.mt5 import MT5Model
+        summarizer = MT5Model()
+        combined_text = ' '.join(documents)
+        return summarizer.summarize(combined_text)
     else:
         raise ValueError(f"Unknown model: {model_name}")
     
@@ -180,20 +179,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Indonesian Multi-Document Summarization with Credibility Analysis",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-    # Basic summarization
-    python -m src.main --mode summarize --model textrank --input_text "Your text here"
-    
-    # Summarize with credibility check
-    python -m src.main --mode summarize --model lexrank --input_file data/docs.json --credibility
-    
-    # Save credibility report
-    python -m src.main --mode summarize --input_file data/docs.json --credibility --report output/report.json
-    
-    # Run credibility analysis only
-    python -m src.main --mode credibility --input_file data/docs.json --report output/report.json
-        """
+        epilog="See README.md for usage examples."
     )
     
     parser.add_argument(
@@ -206,9 +192,16 @@ Examples:
     parser.add_argument(
         '--model', 
         type=str, 
-        choices=['textrank', 'lexrank'], 
+        choices=['textrank', 'lexrank', 'mt5'], 
         default='textrank',
         help="Summarization model to use"
+    )
+    parser.add_argument(
+        '--task',
+        type=str,
+        default='summarize',
+        choices=['summarize', 'classify', 'explain', 'correct'],
+        help="Specific task for mT5 model"
     )
     parser.add_argument(
         '--input_text', 
