@@ -1,53 +1,90 @@
 import pandas as pd
-from datasets import load_dataset
-import random
+import re
 import os
+from sklearn.utils import shuffle
+
+def clean_hoax_text(text):
+    if not isinstance(text, str):
+        return ""
+    # Remove tags like [PENIPUAN], [SALAH], [HOAX]
+    cleaned = re.sub(r'^\[.*?\]\s*', '', text)
+    return cleaned.strip()
 
 def create_hoax_dataset(output_path="data/hoax_dataset.csv"):
-    print("Generating Training Data for Trust Layer...")
+    print("🔄 Generating High-Quality Training Data...")
     
-    # 1. Load HOAX Data (TurnBackHoax via Hugging Face)
-    # This dataset contains articles debunked as hoaxes
-    print("Loading Hoax Source (Rifky/indonesian-hoax-news)...")
-    try:
-        hoax_ds = load_dataset("Rifky/indonesian-hoax-news", split="train")
-        # Extract title/content. We'll combine them for better context.
-        # Assuming columns might be 'title' or 'content'. Adjust if needed based on inspection.
-        # This dataset usually has 'title' and 'url'. The title often contains the claim.
-        hoax_texts = [item['title'] for item in hoax_ds]
-        hoax_labels = [1] * len(hoax_texts)
-        print(f" -> Found {len(hoax_texts)} Hoax samples.")
-    except Exception as e:
-        print(f"Error loading Hoax data: {e}")
+    # --- 1. Load HOAX Data ---
+    hoax_path = "data/raw/turnbackhoax_2020_2025.csv"
+    if not os.path.exists(hoax_path):
+        print(f"❌ Error: Could not find {hoax_path}")
         return
 
-    # 2. Load TRUSTED Data (BBC XL-Sum)
-    # We treat BBC News as the 'Ground Truth' / Non-Hoax
-    print("Loading Trusted Source (BBC XL-Sum)...")
-    trusted_ds = load_dataset("csebuetnlp/xlsum", "indonesian", split="train", trust_remote_code=True)
+    print(f"   Loading Hoax data from: {hoax_path}")
+    df_hoax = pd.read_csv(hoax_path)
     
-    # Balance the dataset: Take same amount of trusted news as hoax news
-    # to prevent the model from just guessing "Safe" all the time.
-    sample_size = min(len(hoax_texts), len(trusted_ds))
-    trusted_slice = trusted_ds.select(range(sample_size))
+    # *** FIX IS HERE: Explicitly use 'judul' ***
+    col_hoax = 'judul' 
     
-    trusted_texts = [item['text'] for item in trusted_slice]
-    trusted_labels = [0] * len(trusted_texts)
-    print(f" -> Found {len(trusted_texts)} Trusted samples.")
+    if col_hoax not in df_hoax.columns:
+        print(f"❌ Error: Column '{col_hoax}' not found. Available: {df_hoax.columns.tolist()}")
+        return
 
-    # 3. Combine & Shuffle
-    all_texts = hoax_texts + trusted_texts
-    all_labels = hoax_labels + trusted_labels
+    # Clean the titles
+    hoax_texts = df_hoax[col_hoax].apply(clean_hoax_text).tolist()
+    hoax_labels = [1] * len(hoax_texts)
+    print(f"   -> Found {len(hoax_texts)} Hoax samples (using column: '{col_hoax}')")
+
+    # --- 2. Load VALID Data ---
+    valid_files = [
+        "data/raw/cnnindonesia_news_RAW.csv",
+        "data/raw/detikcom_news_RAW.csv",
+        "data/raw/kompas_news_RAW.csv"
+    ]
     
-    df = pd.DataFrame({'text': all_texts, 'label': all_labels})
+    valid_texts = []
+    print("   Loading Valid data...")
     
-    # Shuffle
-    df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+    for file_path in valid_files:
+        if os.path.exists(file_path):
+            try:
+                df_temp = pd.read_csv(file_path)
+                # Smarter detection for valid news columns
+                possible_cols = ['title', 'judul', 'headline']
+                col_valid = next((c for c in possible_cols if c in df_temp.columns), None)
+                
+                if col_valid:
+                    batch_texts = df_temp[col_valid].dropna().unique().tolist()
+                    valid_texts.extend(batch_texts)
+                    print(f"     + Loaded {len(batch_texts)} from {os.path.basename(file_path)} (col: {col_valid})")
+                else:
+                    print(f"     ! Skipped {os.path.basename(file_path)}: No title column found.")
+            except Exception as e:
+                print(f"     ! Error reading {file_path}: {e}")
+
+    # --- 3. Balance & Save ---
+    import random
+    random.shuffle(valid_texts)
     
-    # Save
+    # Balance 1:1
+    limit = len(hoax_texts)
+    balanced_valid_texts = valid_texts[:limit]
+    valid_labels = [0] * len(balanced_valid_texts)
+    
+    print(f"   -> Selected {len(balanced_valid_texts)} Valid samples for balancing.")
+
+    all_texts = hoax_texts + balanced_valid_texts
+    all_labels = hoax_labels + valid_labels
+    
+    final_df = pd.DataFrame({'content': all_texts, 'label': all_labels})
+    final_df = shuffle(final_df, random_state=42).reset_index(drop=True)
+    
+    # Validation Print
+    print("\n🔍 Data Check (First 3 Hoax Samples):")
+    print(final_df[final_df['label'] == 1].head(3)['content'].values)
+    
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    df.to_csv(output_path, index=False)
-    print(f"✓ Saved balanced dataset to {output_path} ({len(df)} rows)")
+    final_df.to_csv(output_path, index=False)
+    print(f"\n✅ Saved {len(final_df)} rows to {output_path}")
 
 if __name__ == "__main__":
     create_hoax_dataset()

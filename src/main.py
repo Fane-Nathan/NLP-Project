@@ -158,11 +158,6 @@ def summarize_documents(
     elif model_name == "lexrank":
         from src.models.lexrank import LexRankSummarizer
         summarizer = LexRankSummarizer(num_sentences=num_sentences)
-    elif model_name == "mt5":
-        from src.models.mt5 import MT5Model
-        summarizer = MT5Model()
-        combined_text = ' '.join(documents)
-        return summarizer.summarize(combined_text)
     else:
         raise ValueError(f"Unknown model: {model_name}")
     
@@ -192,16 +187,9 @@ def main():
     parser.add_argument(
         '--model', 
         type=str, 
-        choices=['textrank', 'lexrank', 'mt5'], 
+        choices=['textrank', 'lexrank'],
         default='textrank',
         help="Summarization model to use"
-    )
-    parser.add_argument(
-        '--task',
-        type=str,
-        default='summarize',
-        choices=['summarize', 'classify', 'explain', 'correct'],
-        help="Specific task for mT5 model"
     )
     parser.add_argument(
         '--input_text', 

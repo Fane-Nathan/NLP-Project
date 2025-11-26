@@ -6,10 +6,10 @@ Available models:
 - LexRank: Eigenvector centrality-based extractive
 """
 
-# from .textrank import TextRankSummarizer
-# from .lexrank import LexRankSummarizer
+from .textrank import TextRankSummarizer
+from .lexrank import LexRankSummarizer
 
 __all__ = [
-    # 'TextRankSummarizer',
-    # 'LexRankSummarizer'
+    'TextRankSummarizer',
+    'LexRankSummarizer'
 ]
