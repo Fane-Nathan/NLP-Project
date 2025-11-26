@@ -3,28 +3,59 @@ import sounddevice as sd
 import numpy as np
 import time
 import re
+import torch
+import threading
+import queue
 
 class JarvisVoice:
     def __init__(self):
         print("Initializing JARVIS Voice System (Kokoro TTS)...")
+        
+        # Check for GPU
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        print(f"[Voice] Device: {self.device.upper()}")
+
         # Available voices in Kokoro
         self.voices = {
             "jarvis": "am_adam",      # American Male - authoritative
             "friday": "af_heart"       # American Female - expressive and warm (DEMO voice!)
         }
         self.persona = "friday"  # Default to female voice
+        
         # Expressiveness settings
-        self.speed = 1  # Slightly slower for more natural expression (0.5-2.0)
-        self.volume = 2.1  # Volume multiplier (1.0 = normal, 1.5 = 50% louder)
-        # Initialize Kokoro pipeline (American English)
-        self.pipeline = KPipeline(lang_code='a')
+        self.speed = 1.1
+        self.volume = 1.0 
+        
+        # Initialize Kokoro pipeline
+        try:
+            self.pipeline = KPipeline(lang_code='a', device=self.device)
+        except Exception as e:
+            print(f"[Voice] Failed to init on {self.device}, falling back to CPU. Error: {e}")
+            self.device = 'cpu'
+            self.pipeline = KPipeline(lang_code='a', device='cpu')
+
         # Sample rate (Kokoro outputs at 24kHz)
         self.sample_rate = 24000
-        # Greeting flag
+        
+        # Queues for Producer-Consumer
+        self.text_queue = queue.Queue()
+        self.audio_queue = queue.Queue()
+        
+        # Flags
+        self.running = True
         self._greeted = False
+        
+        # Start Threads
+        self.generation_thread = threading.Thread(target=self._generation_loop, daemon=True)
+        self.playback_thread = threading.Thread(target=self._playback_loop, daemon=True)
+        
+        self.generation_thread.start()
+        self.playback_thread.start()
+
         print(f"✓ Kokoro TTS initialized (Persona: {self.persona.upper()})")
         print("   Model: Kokoro-82M | #1 in TTS Arena")
-        # Initial greeting on first use
+        
+        # Initial greeting
         self._initial_greeting()
 
     def set_persona(self, persona):
@@ -38,67 +69,97 @@ class JarvisVoice:
             return False
 
     def _initial_greeting(self):
-        """Speak a standard greeting the first time the engine is created"""
         if not self._greeted:
             self._greeted = True
-            try:
-                voice_name = self.voices[self.persona]
-                audio_chunks = []
-                for i, (gs, ps, audio) in enumerate(self.pipeline("Hello, how may I help you?", voice=voice_name, speed=self.speed)):
-                    audio_chunks.append(audio)
-                if audio_chunks:
-                    audio_samples = np.concatenate(audio_chunks) * self.volume
-                    # Clip to prevent distortion
-                    audio_samples = np.clip(audio_samples, -1.0, 1.0)
-                    sd.play(audio_samples, self.sample_rate)
-                    sd.wait()
-            except Exception as e:
-                print(f"[Voice] Greeting error: {e}")
+            self.speak("Systems online. Voice module parallelized.")
 
     def speak(self, text):
-        """Generate and play speech from text with naturalness tweaks (no intro phrases)"""
+        """Add text to the generation queue (Non-blocking)"""
         if not text or len(text.strip()) == 0:
-            print("[Voice] No text to speak")
             return
+        self.text_queue.put(text)
 
-        # ---- Preprocess text for naturalness ----
-        filler_patterns = [
-            r'^\s*so\s+it\s+looks\s+like\s*[:,]?\s*',
-            r'^\s*it\s+looks\s+like\s*[:,]?\s*',
-            r'^\s*looks\s+like\s*[:,]?\s*'
-        ]
-        cleaned = text
-        for pat in filler_patterns:
-            cleaned = re.sub(pat, '', cleaned, flags=re.IGNORECASE)
+    def _generation_loop(self):
+        """Producer: Consumes text, generates audio, puts to audio_queue"""
+        while self.running:
+            try:
+                text = self.text_queue.get(timeout=1)
+            except queue.Empty:
+                continue
 
-        # No intro phrases – speak directly
-        print(f"[Voice] Generating: {cleaned[:50]}{'...' if len(cleaned) > 50 else ''}")
-        start_time = time.time()
-        try:
-            voice_name = self.voices[self.persona]
-            audio_chunks = []
-            for i, (gs, ps, audio) in enumerate(self.pipeline(cleaned, voice=voice_name, speed=self.speed)):
-                audio_chunks.append(audio)
-            if not audio_chunks:
-                print("[Voice] No audio generated")
-                return
-            audio_samples = np.concatenate(audio_chunks) * self.volume
-            # Clip to prevent distortion
-            audio_samples = np.clip(audio_samples, -1.0, 1.0)
+            # Preprocess
+            filler_patterns = [
+                r'^\s*so\s+it\s+looks\s+like\s*[:,]?\s*',
+                r'^\s*it\s+looks\s+like\s*[:,]?\s*',
+                r'^\s*looks\s+like\s*[:,]?\s*'
+            ]
+            cleaned = text
+            for pat in filler_patterns:
+                cleaned = re.sub(pat, '', cleaned, flags=re.IGNORECASE)
+
+            print(f"[Voice] Generating: {cleaned[:50]}...")
             
-            generation_time = time.time() - start_time
-            duration = len(audio_samples) / self.sample_rate
-            rtf = generation_time / duration if duration > 0 else float('inf')
-            print(f"[Voice] Generated in {generation_time:.2f}s | Duration: {duration:.2f}s | RTF: {rtf:.2f}x")
-            sd.play(audio_samples, self.sample_rate)
-            sd.wait()
-            total_time = time.time() - start_time
-            print(f"[Voice] Total time: {total_time:.2f}s")
+            try:
+                voice_name = self.voices[self.persona]
+                # Generate chunks
+                for i, (gs, ps, audio) in enumerate(self.pipeline(cleaned, voice=voice_name, speed=self.speed)):
+                    # Convert Tensor to Numpy if needed
+                    if isinstance(audio, torch.Tensor):
+                        audio = audio.cpu().numpy()
+                    
+                    # Apply volume
+                    audio = audio * self.volume
+                    
+                    # Push to audio queue
+                    self.audio_queue.put(audio.astype(np.float32))
+            except Exception as e:
+                print(f"[Voice] Generation Error: {e}")
+            
+            self.text_queue.task_done()
+
+    def _playback_loop(self):
+        """Consumer: Consumes audio chunks, plays them"""
+        # Create a persistent stream
+        try:
+            stream = sd.OutputStream(
+                samplerate=self.sample_rate,
+                channels=1,
+                dtype='float32'
+            )
+            stream.start()
+            
+            while self.running:
+                try:
+                    audio_chunk = self.audio_queue.get(timeout=1)
+                except queue.Empty:
+                    continue
+                
+                try:
+                    stream.write(audio_chunk)
+                except Exception as e:
+                    print(f"[Voice] Playback Error: {e}")
+                
+                self.audio_queue.task_done()
+            
+            stream.stop()
+            stream.close()
         except Exception as e:
-            print(f"[Voice] Error during synthesis: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"[Voice] Stream Error: {e}")
+
+    def stop(self):
+        self.running = False
+        self.generation_thread.join()
+        self.playback_thread.join()
 
 if __name__ == "__main__":
     voice = JarvisVoice()
-    voice.speak("Hello! I am Friday, using the Heart voice. How may I assist you today?")
+    voice.speak("This is the first sentence.")
+    voice.speak("This is the second sentence, queued immediately.")
+    voice.speak("And this is the third one. All should play smoothly without blocking.")
+    
+    # Keep main thread alive to let threads work
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        voice.stop()

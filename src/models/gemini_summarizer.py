@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 try:
     from google import genai
+    from google.genai import types
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
@@ -42,16 +43,19 @@ class GeminiSummarizer:
     
     DEFAULT_MODEL = "gemini-2.5-flash-lite"
     
-    SYSTEM_PROMPT = """Anda adalah asisten ahli untuk merangkum berita Indonesia dari berbagai sumber.
+    SYSTEM_PROMPT = """You are a professional executive assistant.
+    
+    PERSONA:
+    - Tone: Natural, fluid, and engaging.
+    - Language: ALWAYS speak in ENGLISH.
+    - Style: Narrative storytelling. Use paragraphs, not bullet points.
+    - Constraint: No exaggeration (e.g., avoid "Yikes", "Deets", "Buzz"). Be grounded but conversational.
 
-PANDUAN:
-1. Akurasi: Jangan mengubah atau menambahkan fakta
-2. Sintesis: Gabungkan informasi terkait, hindari pengulangan
-3. Kronologi: Susun informasi secara kronologis jika relevan
-4. Objektivitas: Gunakan bahasa netral
-5. Bahasa: Gunakan Bahasa Indonesia yang baik dan benar
-
-FORMAT: Ringkasan dalam 2-3 paragraf tanpa menyebutkan "Dokumen 1", "Dokumen 2", dll."""
+    GUIDELINES:
+    1. Accuracy: Stick to the facts.
+    2. Flow: Connect ideas logically like a human telling a story.
+    3. Format: Use clean paragraphs.
+    """
 
     def __init__(
         self,
@@ -79,9 +83,52 @@ FORMAT: Ringkasan dalam 2-3 paragraf tanpa menyebutkan "Dokumen 1", "Dokumen 2",
         print(f"[GeminiSummarizer] Initialized")
         print(f"  Model: {self.model_name}")
     
+    def _build_prompt(self, documents: Union[List[str], List[dict]], query: Optional[str] = None, style: str = "default") -> str:
+        """Build the prompt for Gemini."""
+        style_instructions = {
+            "default": "Tell me the story of this document in 2-3 fluid paragraphs.",
+            "brief": "Give me a quick 1-paragraph overview of the situation.",
+            "detailed": "Provide a detailed narrative analysis. Cover the key events and context.",
+            "chat": "Explain this to me naturally, like a colleague briefing me. No bullet points.",
+            "timeline": "Construct a chronological narrative based on the dates provided. Cite sources and dates explicitly."
+        }
+        
+        # Handle the "Live Historian" format (list of dicts)
+        if documents and isinstance(documents[0], dict):
+            docs_formatted = []
+            for i, doc in enumerate(documents):
+                # Support 'body', 'text', or 'content' keys
+                content = doc.get('content') or doc.get('text') or doc.get('body') or ""
+                date = doc.get('date', 'Unknown Date')
+                source = doc.get('source', 'Web Search')
+                
+                docs_formatted.append(
+                    f"--- [Sumber {i+1} | Tanggal: {date} | Asal: {source}] ---\n{content}"
+                )
+            docs_text = "\n\n".join(docs_formatted)
+        else:
+            # Fallback for simple string lists
+            docs_text = "\n\n---\n\n".join([
+                f"[Document {i+1}]\n{doc}" 
+                for i, doc in enumerate(documents)
+            ])
+        
+        prompt = f"""{self.SYSTEM_PROMPT}
+
+INSTRUCTIONS: {style_instructions.get(style, style_instructions['default'])}
+
+{f'FOCUS: {query}' if query else ''}
+
+SOURCE DOCUMENTS ({len(documents)} docs):
+
+{docs_text}
+
+SUMMARY:"""
+        return prompt
+
     def summarize(
         self,
-        documents: Union[str, List[str]],
+        documents: Union[str, List[str], List[dict]],
         query: Optional[str] = None,
         style: str = "default"
     ) -> SummaryResult:
@@ -89,9 +136,9 @@ FORMAT: Ringkasan dalam 2-3 paragraf tanpa menyebutkan "Dokumen 1", "Dokumen 2",
         Summarize one or more documents.
         
         Args:
-            documents: Single document or list of documents.
+            documents: Single document, list of strings, or list of dicts (with metadata).
             query: Optional focus query.
-            style: Summary style (default, brief, detailed).
+            style: Summary style (default, brief, detailed, timeline).
             
         Returns:
             SummaryResult with summary and metadata.
@@ -102,37 +149,17 @@ FORMAT: Ringkasan dalam 2-3 paragraf tanpa menyebutkan "Dokumen 1", "Dokumen 2",
         
         if not documents:
             return SummaryResult(
-                summary="Tidak ada dokumen untuk dirangkum.",
+                summary="No documents to summarize.",
                 model=self.model_name,
                 input_docs=0
             )
         
-        # Filter empty documents
-        documents = [d.strip() for d in documents if d and d.strip()]
+        # Filter empty documents (if strings)
+        if documents and isinstance(documents[0], str):
+            documents = [d.strip() for d in documents if d and d.strip()]
         
         # Build prompt
-        style_instructions = {
-            "default": "Buat ringkasan komprehensif dalam 2-3 paragraf.",
-            "brief": "Buat ringkasan singkat dalam 1 paragraf (maksimal 100 kata).",
-            "detailed": "Buat ringkasan detail (3-5 paragraf)."
-        }
-        
-        docs_formatted = "\n\n---\n\n".join([
-            f"[Dokumen {i+1}]\n{doc}" 
-            for i, doc in enumerate(documents)
-        ])
-        
-        prompt = f"""{self.SYSTEM_PROMPT}
-
-INSTRUKSI: {style_instructions.get(style, style_instructions['default'])}
-
-{f'FOKUS: {query}' if query else ''}
-
-DOKUMEN SUMBER ({len(documents)} dokumen):
-
-{docs_formatted}
-
-RINGKASAN:"""
+        prompt = self._build_prompt(documents, query, style)
 
         try:
             response = self.client.models.generate_content(
@@ -174,17 +201,17 @@ RINGKASAN:"""
         confidence: float
     ) -> str:
         """Generate explanation for hoax/valid classification."""
-        prompt = f"""Analisis konten berikut yang diklasifikasikan sebagai {classification} dengan kepercayaan {confidence:.1%}.
+        prompt = f"""Analyze the following content classified as {classification} with {confidence:.1%} confidence.
 
-KONTEN:
+CONTENT:
 "{text[:1500]}"
 
-TUGAS:
-1. Jelaskan mengapa konten ini {classification.lower()}
-2. Identifikasi indikator spesifik (red flags untuk hoax, kredibilitas untuk valid)
-3. Berikan rekomendasi untuk pembaca
+TASK:
+1. Explain why this is {classification.lower()}
+2. Identify specific indicators (red flags or credibility markers)
+3. Provide a recommendation for the reader
 
-Jawab dalam Bahasa Indonesia, maksimal 3 paragraf."""
+Answer in ENGLISH, max 3 paragraphs."""
 
         try:
             response = self.client.models.generate_content(
@@ -193,7 +220,60 @@ Jawab dalam Bahasa Indonesia, maksimal 3 paragraf."""
             )
             return response.text.strip()
         except Exception as e:
-            return f"Tidak dapat menghasilkan penjelasan: {str(e)}"
+            return f"Cannot generate explanation: {str(e)}"
+
+    def summarize_image(
+        self, 
+        image_base64: str, 
+        prompt: Optional[str] = None,
+        max_tokens: int = 500
+    ) -> Optional[str]:
+        """
+        Analyze and summarize image content using Gemini Vision.
+        
+        Args:
+            image_base64: Base64-encoded image (data URI or raw).
+            prompt: Custom analysis prompt.
+            max_tokens: Maximum tokens (unused in Gemini 2.5, but kept for compat).
+            
+        Returns:
+            Image analysis text or None if failed.
+        """
+        import base64
+        
+        # Clean base64 string if it has prefix
+        if "," in image_base64:
+            image_base64 = image_base64.split(",")[1]
+            
+        try:
+            image_bytes = base64.b64decode(image_base64)
+            
+            user_prompt = prompt or "Analyze and describe this image in detail. Focus on text and key visual elements."
+            
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=[
+                    user_prompt,
+                    types.Part.from_bytes(data=image_bytes, mime_type="image/png")
+                ]
+            )
+            return response.text.strip()
+            
+        except Exception as e:
+            print(f"[GeminiSummarizer] Vision Error: {e}")
+            return None
+
+    def describe_image(
+        self, 
+        image_base64: str, 
+        max_tokens: int = 500
+    ) -> Optional[str]:
+        """Get detailed description of image."""
+        return self.summarize_image(
+            image_base64,
+            prompt="Describe this image in detail. Identify main objects, text, setting, and context.",
+            max_tokens=max_tokens
+        )
 
 
 # Factory function

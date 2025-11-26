@@ -37,26 +37,28 @@ class GroqSummarizer:
     
     # Default models
     TEXT_MODEL = "llama-3.1-8b-instant"
-    VISION_MODEL = "llama-3.2-90b-vision-preview"
+    VISION_MODEL = "llama-3.2-11b-vision-preview"  # Updated to 11b preview
     
     # System prompts
-    SUMMARIZE_PROMPT = """Anda adalah asisten ahli untuk merangkum berita Indonesia.
-Tugas Anda adalah membuat ringkasan yang:
-1. Akurat dan tidak mengubah fakta
-2. Singkat namun informatif
-3. Menggunakan Bahasa Indonesia yang baik dan benar
-4. Menangkap poin-poin utama
+    SUMMARIZE_PROMPT = """You are JARVIS, a highly advanced AI assistant.
 
-Berikan ringkasan dalam 2-3 paragraf."""
+GUIDELINES:
+1. Language: ALWAYS speak in English.
+2. Style: Concise, professional, and helpful. Like J.A.R.V.I.S from Iron Man.
+3. Context: You are analyzing screen content or text.
+4. Format: Use markdown for structure, but keep it readable for TTS.
 
-    DESCRIBE_PROMPT = """Anda adalah asisten visual yang mampu menganalisis gambar.
-Jelaskan konten visual yang Anda lihat dengan detail, termasuk:
-1. Elemen utama dalam gambar
-2. Teks yang terlihat (jika ada)
-3. Konteks atau setting
-4. Informasi penting lainnya
+Task: Summarize the following text."""
 
-Gunakan Bahasa Indonesia."""
+    DESCRIBE_PROMPT = """You are JARVIS, a vision-capable AI assistant.
+
+GUIDELINES:
+1. Language: ALWAYS speak in English.
+2. Style: Concise, professional, and observant.
+3. Task: Describe the visual content in detail.
+4. Focus: Main elements, text (if any), context, and key information.
+
+Task: Analyze this image."""
 
     def __init__(
         self, 
@@ -125,7 +127,7 @@ Gunakan Bahasa Indonesia."""
                 model=self.text_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Rangkum teks berikut:\n\n{text}"}
+                    {"role": "user", "content": f"Summarize this:\n\n{text}"}
                 ],
                 max_tokens=max_tokens,
                 temperature=0.3
@@ -162,7 +164,7 @@ Gunakan Bahasa Indonesia."""
             print("[GroqSummarizer] Error: No API client available.")
             return None
         
-        user_prompt = prompt or "Analisis dan jelaskan konten gambar ini secara detail."
+        user_prompt = prompt or "Analyze and describe this image in detail."
         
         try:
             response = self.client.chat.completions.create(
@@ -210,6 +212,45 @@ Gunakan Bahasa Indonesia."""
             max_tokens=max_tokens
         )
 
+    def summarize_with_search(
+        self,
+        query: str,
+        search_context: str,
+        max_tokens: int = 300
+    ) -> Optional[str]:
+        """
+        Generate an answer based on search results.
+        
+        Args:
+            query: User's original query.
+            search_context: Formatted search results.
+            max_tokens: Max tokens for response.
+        """
+        if not self.client:
+            return None
+
+        system_prompt = """You are JARVIS. Answer the user's question based ONLY on the provided web search results.
+GUIDELINES:
+1. If the results contain the answer, summarize it clearly.
+2. If the results are irrelevant, say "I couldn't find that information in the search results."
+3. Be concise and professional.
+4. Do not hallucinate facts not in the context."""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.text_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"User Query: {query}\n\nSearch Results:\n{search_context}"}
+                ],
+                max_tokens=max_tokens,
+                temperature=0.3
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"[GroqSummarizer] Search-Augmented Generation Error: {e}")
+            return None
+
 
 if __name__ == "__main__":
     # Demo
@@ -217,10 +258,9 @@ if __name__ == "__main__":
     
     if summarizer.client:
         text = """
-        Pemerintah Indonesia mengumumkan kebijakan baru tentang vaksinasi COVID-19.
-        Program ini ditargetkan menjangkau 70% populasi dalam waktu enam bulan.
-        Kementerian Kesehatan telah menyiapkan lebih dari 100 juta dosis vaksin.
-        Vaksinasi akan dilakukan secara bertahap mulai dari tenaga kesehatan.
+        The Indonesian government announced a new policy regarding COVID-19 vaccination.
+        The program targets 70% of the population within six months.
+        The Ministry of Health has prepared over 100 million vaccine doses.
         """
         
         summary = summarizer.summarize(text)

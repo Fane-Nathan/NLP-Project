@@ -134,3 +134,52 @@ class TextPreprocessor:
     def remove_stopwords(self, tokens: List[str]) -> List[str]:
         """Remove Indonesian stopwords from token list."""
         return [t for t in tokens if t.lower() not in self.stopwords]
+
+    def clean_for_kg(self, text: str) -> str:
+        """
+        Advanced cleaning for Knowledge Graph ingestion.
+        Removes UI elements, navigation text, and noise.
+        """
+        if not text:
+            return ""
+            
+        lines = text.split('\n')
+        cleaned_lines = []
+        
+        # Common UI/Navigation terms to filter out (case-insensitive)
+        ui_terms = {
+            'settings', 'menu', 'login', 'sign in', 'sign up', 'search',
+            'home', 'profile', 'notifications', 'messages', 'dashboard',
+            'copyright', 'all rights reserved', 'privacy policy', 'terms of service',
+            'skip to content', 'back to top', 'cookie policy', 'accept', 'decline',
+            'loading', 'please wait', '404', 'not found', 'error',
+            'pengaturan', 'masuk', 'daftar', 'beranda', 'profil', 'notifikasi',
+            'pesan', 'kebijakan privasi', 'syarat dan ketentuan', 'hak cipta'
+        }
+        
+        for line in lines:
+            line = line.strip()
+            
+            # Skip empty lines
+            if not line:
+                continue
+                
+            # Skip very short lines (likely noise, unless it looks like a header)
+            if len(line) < 4 and not line.isupper():
+                continue
+                
+            # Skip lines that are just numbers or special chars
+            if re.match(r'^[\d\W]+$', line):
+                continue
+                
+            # Skip lines that match UI terms exactly
+            if line.lower() in ui_terms:
+                continue
+                
+            # Skip lines that look like file paths or URLs (unless relevant, but usually noise in OCR)
+            if line.startswith(('http://', 'https://', 'www.', 'file://', 'C:\\', '/usr/')):
+                continue
+                
+            cleaned_lines.append(line)
+            
+        return "\n".join(cleaned_lines)
