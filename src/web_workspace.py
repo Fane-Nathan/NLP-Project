@@ -1,5 +1,5 @@
 """
-TDSM Full Workspace - News Verification with TTS
+TDSM Full Workspace - News Verification with Kokoro TTS
 Complete pipeline: URL Fetch → Trust Layer → Web Search → KG → Verdict → TTS
 """
 
@@ -20,6 +20,22 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 app = Flask(__name__)
+
+# Global TTS instance (Kokoro)
+tts_voice = None
+tts_enabled = True
+
+def init_tts():
+    """Initialize Kokoro TTS."""
+    global tts_voice
+    try:
+        from src.voice_kokoro import EchoVoice
+        tts_voice = EchoVoice()
+        print("✓ Kokoro TTS initialized")
+        return True
+    except Exception as e:
+        print(f"[Warning] Kokoro TTS not available: {e}")
+        return False
 
 # HTML Template - Full Workspace with TTS
 HTML_TEMPLATE = '''
@@ -173,6 +189,20 @@ HTML_TEMPLATE = '''
             font-size: 0.75rem;
             padding: 0.3rem 0.5rem;
             border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .tts-status {
+            font-size: 0.6rem;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+            background: var(--success-bg);
+            color: var(--success);
+        }
+
+        .tts-status.offline {
+            background: var(--error-bg);
+            color: var(--error);
         }
 
         /* Main Area */
@@ -747,10 +777,13 @@ HTML_TEMPLATE = '''
             </div>
             <div class="header-controls">
                 <div class="tts-controls">
-                    <label>TTS</label>
+                    <label>Kokoro TTS</label>
                     <div class="tts-toggle active" id="tts-toggle" onclick="toggleTTS()"></div>
-                    <select class="voice-select" id="voice-select"></select>
-                    <button class="btn btn-secondary btn-stop-tts" onclick="stopTTS()" title="Stop Speaking">⏹</button>
+                    <select class="voice-select" id="voice-select" onchange="changeVoice()">
+                        <option value="friday">Friday (Female)</option>
+                        <option value="echo">Echo (Male)</option>
+                    </select>
+                    <span class="tts-status" id="tts-status">Ready</span>
                 </div>
             </div>
         </header>
@@ -880,68 +913,70 @@ HTML_TEMPLATE = '''
     </div>
 
     <script>
-        // TTS Setup
+        // Kokoro TTS Setup
         let ttsEnabled = true;
-        let currentUtterance = null;
-        const synth = window.speechSynthesis;
-
-        // Populate voice list
-        function populateVoices() {
-            const select = document.getElementById('voice-select');
-            const voices = synth.getVoices();
-            select.innerHTML = '';
-
-            // Prefer English voices
-            const preferred = voices.filter(v => v.lang.startsWith('en'));
-            const others = voices.filter(v => !v.lang.startsWith('en'));
-
-            [...preferred, ...others].forEach(voice => {
-                const option = document.createElement('option');
-                option.value = voice.name;
-                option.textContent = `${voice.name.slice(0, 20)} (${voice.lang})`;
-                if (voice.default) option.selected = true;
-                select.appendChild(option);
-            });
-        }
-
-        if (synth.onvoiceschanged !== undefined) {
-            synth.onvoiceschanged = populateVoices;
-        }
-        populateVoices();
 
         function toggleTTS() {
             ttsEnabled = !ttsEnabled;
             document.getElementById('tts-toggle').classList.toggle('active', ttsEnabled);
+
+            // Update server state
+            fetch('/api/tts/toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: ttsEnabled })
+            });
+        }
+
+        function changeVoice() {
+            const voice = document.getElementById('voice-select').value;
+            fetch('/api/tts/voice', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ voice: voice })
+            }).then(res => res.json()).then(data => {
+                if (data.success) {
+                    updateTTSStatus('Voice: ' + voice);
+                }
+            });
         }
 
         function speak(text) {
             if (!ttsEnabled || !text) return;
 
-            synth.cancel();
-            currentUtterance = new SpeechSynthesisUtterance(text);
+            updateTTSStatus('Speaking...');
+            document.getElementById('speaking-indicator').classList.add('active');
 
-            const voiceName = document.getElementById('voice-select').value;
-            const voice = synth.getVoices().find(v => v.name === voiceName);
-            if (voice) currentUtterance.voice = voice;
-
-            currentUtterance.rate = 1.0;
-            currentUtterance.pitch = 1.0;
-
-            currentUtterance.onstart = () => {
-                document.getElementById('speaking-indicator').classList.add('active');
-            };
-
-            currentUtterance.onend = () => {
+            fetch('/api/tts/speak', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: text })
+            }).then(res => res.json()).then(data => {
+                // TTS is async on server, indicator will stay for a bit
+                setTimeout(() => {
+                    document.getElementById('speaking-indicator').classList.remove('active');
+                    updateTTSStatus('Ready');
+                }, 2000);
+            }).catch(err => {
                 document.getElementById('speaking-indicator').classList.remove('active');
-            };
-
-            synth.speak(currentUtterance);
+                updateTTSStatus('Error');
+            });
         }
 
-        function stopTTS() {
-            synth.cancel();
-            document.getElementById('speaking-indicator').classList.remove('active');
+        function updateTTSStatus(status) {
+            const el = document.getElementById('tts-status');
+            el.textContent = status;
+            el.classList.toggle('offline', status === 'Error' || status === 'Offline');
         }
+
+        // Check TTS status on load
+        fetch('/api/tts/status').then(res => res.json()).then(data => {
+            updateTTSStatus(data.available ? 'Ready' : 'Offline');
+            if (!data.available) {
+                document.getElementById('tts-toggle').classList.remove('active');
+                ttsEnabled = false;
+            }
+        });
 
         // Tab switching
         function switchTab(tab) {
@@ -1454,17 +1489,76 @@ def health():
     return jsonify({'status': 'ok'})
 
 
+# === TTS API Endpoints ===
+
+@app.route('/api/tts/status')
+def tts_status():
+    """Check if Kokoro TTS is available."""
+    global tts_voice
+    return jsonify({
+        'available': tts_voice is not None,
+        'enabled': tts_enabled,
+        'voice': tts_voice.persona if tts_voice else None
+    })
+
+
+@app.route('/api/tts/speak', methods=['POST'])
+def tts_speak():
+    """Speak text using Kokoro TTS."""
+    global tts_voice, tts_enabled
+    if not tts_voice or not tts_enabled:
+        return jsonify({'success': False, 'error': 'TTS not available'})
+
+    data = request.json
+    text = data.get('text', '').strip()
+
+    if text:
+        tts_voice.speak(text)
+        return jsonify({'success': True})
+
+    return jsonify({'success': False, 'error': 'No text provided'})
+
+
+@app.route('/api/tts/toggle', methods=['POST'])
+def tts_toggle():
+    """Toggle TTS on/off."""
+    global tts_enabled
+    data = request.json
+    tts_enabled = data.get('enabled', True)
+    return jsonify({'success': True, 'enabled': tts_enabled})
+
+
+@app.route('/api/tts/voice', methods=['POST'])
+def tts_voice_change():
+    """Change TTS voice persona."""
+    global tts_voice
+    if not tts_voice:
+        return jsonify({'success': False, 'error': 'TTS not available'})
+
+    data = request.json
+    voice = data.get('voice', 'friday')
+
+    if tts_voice.set_persona(voice):
+        return jsonify({'success': True, 'voice': voice})
+
+    return jsonify({'success': False, 'error': 'Invalid voice'})
+
+
 def run_server(host: str = '0.0.0.0', port: int = 5000, debug: bool = False):
     """Run the Flask server."""
     print(f"\n{'='*60}")
     print("TDSM News Verification Workspace")
     print(f"{'='*60}")
+
+    # Initialize Kokoro TTS
+    init_tts()
+
     print(f"\n→ Open http://localhost:{port} in your browser")
     print("\nFeatures:")
     print("  • URL verification (paste article links)")
     print("  • Text verification (paste content directly)")
     print("  • Clipboard reading")
-    print("  • Text-to-Speech verdicts")
+    print("  • Kokoro TTS (local neural voice)")
     print("  • Bookmarklet for quick verification")
     print()
     app.run(host=host, port=port, debug=debug)
