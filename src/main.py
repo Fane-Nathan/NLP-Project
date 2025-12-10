@@ -214,11 +214,11 @@ def main():
     )
     
     parser.add_argument(
-        '--mode', 
-        type=str, 
+        '--mode',
+        type=str,
         choices=['summarize', 'kg', 'verify', 'credibility', 'full', 'evaluate'],
-        required=True,
-        help="Operation mode"
+        default='full',
+        help="Operation mode (default: full - runs complete pipeline with credibility + KG verification)"
     )
     parser.add_argument(
         '--model', 
@@ -307,11 +307,17 @@ def main():
     )
 
     args = parser.parse_args()
-    
+
     print("=" * 70)
     print("🔬 TRUST-DRIVEN SUMMARIZATION MODEL (TDSM)")
     print("   with Knowledge Graph Verification")
     print("=" * 70)
+
+    # Show simplified execution info when using defaults
+    if args.mode == 'full' and not args.input_file and not args.input_text:
+        print("\n💡 Running ONE-BUTTON mode: Full pipeline with demo data")
+        print("   → Credibility Analysis → Knowledge Graph → Verified Summary")
+        print("   (Use --input_file or --input_text for custom documents)")
     
     # === LOAD DOCUMENTS ===
     documents = []
