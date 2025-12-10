@@ -1,10 +1,14 @@
+import sys
+import os
 import keyboard
 import time
 import pyperclip
 import threading
 import re
-import os
 import json
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from src.screen_capture import ScreenCapturer
 from src.models.llm_groq import GroqSummarizer
 from src.models.gemini_summarizer import GeminiSummarizer
