@@ -1,5 +1,5 @@
-# JARVIS Startup Script
-Write-Host "Initializing JARVIS Protocol..." -ForegroundColor Cyan
+# Echo Startup Script
+Write-Host "Initializing Echo Protocol..." -ForegroundColor Cyan
 
 # Activate the virtual environment
 & ".\DocumentRAG\Scripts\Activate.ps1"

@@ -216,7 +216,7 @@ def main():
     parser.add_argument(
         '--mode', 
         type=str, 
-        choices=['summarize', 'kg', 'verify', 'credibility', 'full'],
+        choices=['summarize', 'kg', 'verify', 'credibility', 'full', 'evaluate'],
         required=True,
         help="Operation mode"
     )
@@ -269,7 +269,43 @@ def main():
         default=5,
         help="Number of sentences for extractive"
     )
-    
+    parser.add_argument(
+        '--num_samples', 
+        type=int, 
+        default=50,
+        help="Number of samples for evaluation mode"
+    )
+    parser.add_argument(
+        '--use_mmr', 
+        action='store_true',
+        help="Enable MMR for redundancy reduction in summarization"
+    )
+    parser.add_argument(
+        '--indo_rouge',
+        action='store_true',
+        help="Use Indonesian-specific ROUGE with Sastrawi stemming"
+    )
+    parser.add_argument(
+        '--similarity_mode',
+        type=str,
+        default='tfidf',
+        choices=['tfidf', 'embedding', 'hybrid'],
+        help="Similarity mode: tfidf (fast), embedding (semantic), hybrid (best ROUGE)"
+    )
+    parser.add_argument(
+        '--embedding_model',
+        type=str,
+        default='indo-e5-small',
+        choices=['indo-e5-small', 'indo-e5-base', 'indo-sbert', 'multilingual-e5-base', 'multilingual-e5-small', 'multilingual-minilm'],
+        help="Embedding model to use (for embedding/hybrid mode)"
+    )
+    parser.add_argument(
+        '--hybrid_weight',
+        type=float,
+        default=0.6,
+        help="Weight for embeddings in hybrid mode (0-1, default: 0.6)"
+    )
+
     args = parser.parse_args()
     
     print("=" * 70)
@@ -302,6 +338,155 @@ def main():
         print("[Error] No documents to process")
         return
     
+    # === MODE: EVALUATE ===
+    if args.mode == 'evaluate':
+        from src.evaluation import Evaluator, IndonesianEvaluator
+        from src.models.textrank import TextRankSummarizer
+        from src.models.lexrank import LexRankSummarizer
+        from src.models.gemini_summarizer import GeminiSummarizer
+        import numpy as np
+
+        print("\n" + "=" * 60)
+        print("📊 MODE: EVALUATION")
+        print("=" * 60)
+
+        dataset = []
+        
+        # Load dataset from file or XL-Sum
+        if args.input_file:
+            print(f"[Input] Loading dataset from: {args.input_file}")
+            with open(args.input_file, 'r', encoding='utf-8') as f:
+                raw_data = json.load(f)
+                if isinstance(raw_data, list):
+                    dataset = raw_data
+                else:
+                    dataset = raw_data.get('data', raw_data.get('exemplars', []))
+        else:
+            # Load from XL-Sum dataset
+            print(f"[Input] Loading {args.num_samples} samples from XL-Sum (Indonesian)...")
+            try:
+                from datasets import load_dataset
+                xlsum = load_dataset(
+                    "csebuetnlp/xlsum", 
+                    "indonesian", 
+                    split="test",  # Use test split for evaluation
+                    cache_dir="./data_cache",
+                    trust_remote_code=True
+                )
+                # Sample randomly
+                import random
+                indices = random.sample(range(len(xlsum)), min(args.num_samples, len(xlsum)))
+                for idx in indices:
+                    item = xlsum[idx]
+                    dataset.append({
+                        "text": item["text"],
+                        "summary": item["summary"]
+                    })
+                print(f"[Input] Loaded {len(dataset)} samples from XL-Sum test set")
+            except Exception as e:
+                print(f"[Warning] Could not load XL-Sum: {e}")
+                print("[Info] Falling back to demo data.")
+                dataset = [
+                    {
+                        "text": "Pemerintah Indonesia secara resmi meluncurkan program vaksinasi nasional COVID-19. Presiden Joko Widodo menjadi orang pertama yang menerima suntikan vaksin Sinovac. Langkah ini menandai dimulainya upaya ambisius untuk mengimunisasi 181,5 juta orang.",
+                        "summary": "Pemerintah Indonesia meluncurkan program vaksinasi COVID-19 dengan Presiden Joko Widodo sebagai penerima pertama."
+                    },
+                    {
+                        "text": "Tim nasional bulu tangkis Indonesia berhasil menjuarai Piala Thomas 2020. Kemenangan ini diraih setelah mengalahkan tim China dengan skor telak 3-0 di final. Ini adalah gelar ke-14 bagi Indonesia setelah penantian selama 19 tahun.",
+                        "summary": "Indonesia menjuarai Piala Thomas 2020 setelah mengalahkan China 3-0."
+                    }
+                ]
+
+        if not dataset:
+            print("[Error] No data found for evaluation.")
+            return
+
+        print(f"\nEvaluating Model: {args.model.upper()}")
+        print(f"MMR Enabled: {args.use_mmr}")
+        print(f"Similarity: {args.similarity_mode.upper()}" + (f" ({args.embedding_model})" if args.similarity_mode != "tfidf" else ""))
+        if args.similarity_mode == "hybrid":
+            print(f"Hybrid Weight: {args.hybrid_weight} (embedding) / {1-args.hybrid_weight:.1f} (tfidf)")
+        print(f"Indo ROUGE: {args.indo_rouge}")
+        print(f"Samples: {len(dataset)}")
+        print("-" * 30)
+
+        # Initialize Model with options
+        if args.model == "textrank":
+            model = TextRankSummarizer(
+                num_sentences=args.num_sentences,
+                use_mmr=args.use_mmr,
+                similarity_mode=args.similarity_mode,
+                embedding_model=args.embedding_model,
+                hybrid_weight=args.hybrid_weight
+            )
+        elif args.model == "lexrank":
+            model = LexRankSummarizer(
+                num_sentences=args.num_sentences,
+                use_mmr=args.use_mmr,
+                similarity_mode=args.similarity_mode,
+                embedding_model=args.embedding_model,
+                hybrid_weight=args.hybrid_weight
+            )
+        else:
+            model = GeminiSummarizer()
+
+        # Initialize evaluator (Indonesian or standard)
+        if args.indo_rouge:
+            evaluator = IndonesianEvaluator(use_stemmer=True)
+        else:
+            evaluator = Evaluator()
+        
+        # Collect individual scores for statistical analysis
+        rouge1_scores = []
+        rouge2_scores = []
+        rougel_scores = []
+
+        for i, item in enumerate(dataset):
+            text = item.get('text', item.get('content', item.get('article', '')))
+            ref_summary = item.get('summary', item.get('gold_summary', ''))
+
+            if not text or not ref_summary:
+                continue
+
+            # Calculate target length from reference summary (adaptive length)
+            ref_word_count = len(ref_summary.split())
+
+            # Generate Summary with adaptive length
+            if args.model in ["textrank", "lexrank"]:
+                # Use target_words for adaptive length matching
+                pred_summary = model.summarize(text, target_words=ref_word_count)
+            else:
+                pred_summary = model.summarize([text]).summary
+
+            # Calculate individual scores
+            individual_scores = evaluator.evaluate_single(ref_summary, pred_summary)
+            rouge1_scores.append(individual_scores['rouge1']['fmeasure'])
+            rouge2_scores.append(individual_scores['rouge2']['fmeasure'])
+            rougel_scores.append(individual_scores['rougeL']['fmeasure'])
+            
+            if (i + 1) % 10 == 0 or i == len(dataset) - 1:
+                print(f"[{i+1}/{len(dataset)}] Processed...")
+
+        # Calculate statistics
+        print("\n" + "=" * 50)
+        print("📈 ROUGE Evaluation Results (with Statistics)")
+        print("=" * 50)
+        print(f"  Samples: {len(rouge1_scores)}")
+        print(f"  Model: {args.model.upper()} {'(+MMR)' if args.use_mmr else ''}")
+        print("-" * 50)
+        print(f"  ROUGE-1: {np.mean(rouge1_scores):.4f} ± {np.std(rouge1_scores):.4f}")
+        print(f"  ROUGE-2: {np.mean(rouge2_scores):.4f} ± {np.std(rouge2_scores):.4f}")
+        print(f"  ROUGE-L: {np.mean(rougel_scores):.4f} ± {np.std(rougel_scores):.4f}")
+        print("=" * 50)
+        
+        # Statistical significance note
+        if len(rouge1_scores) >= 30:
+            print("✓ Sample size sufficient for statistical significance (n≥30)")
+        else:
+            print(f"⚠ Sample size may be insufficient (n={len(rouge1_scores)}). Consider --num_samples 100+")
+        
+        return
+
     # === MODE: CREDIBILITY ONLY ===
     if args.mode == 'credibility':
         filtered_docs, report = run_credibility_analysis(
@@ -371,21 +556,33 @@ def main():
             # Use basic summarization (existing behavior)
             from src.models.textrank import TextRankSummarizer
             from src.models.lexrank import LexRankSummarizer
-            
+
             combined_text = ' '.join(docs_to_summarize)
-            
+
             if args.model == "textrank":
-                summarizer = TextRankSummarizer(num_sentences=args.num_sentences)
+                summarizer = TextRankSummarizer(
+                    num_sentences=args.num_sentences,
+                    use_mmr=args.use_mmr,
+                    similarity_mode=args.similarity_mode,
+                    embedding_model=args.embedding_model,
+                    hybrid_weight=args.hybrid_weight
+                )
                 summary = summarizer.summarize(combined_text)
             elif args.model == "lexrank":
-                summarizer = LexRankSummarizer(num_sentences=args.num_sentences)
+                summarizer = LexRankSummarizer(
+                    num_sentences=args.num_sentences,
+                    use_mmr=args.use_mmr,
+                    similarity_mode=args.similarity_mode,
+                    embedding_model=args.embedding_model,
+                    hybrid_weight=args.hybrid_weight
+                )
                 summary = summarizer.summarize(combined_text)
             else:
                 from src.models.gemini_summarizer import GeminiSummarizer
                 summarizer = GeminiSummarizer()
                 result = summarizer.summarize(docs_to_summarize)
                 summary = result.summary
-            
+
             result = {"summary": summary}
         
         # Output

@@ -1,4 +1,4 @@
-# JARVIS Voice Assistant 🤖🔊
+# Echo Voice Assistant 🤖🔊
 
 A powerful, local AI assistant capable of screen analysis and ultra-fast, high-quality voice interaction using **Kokoro TTS**.
 
@@ -8,7 +8,7 @@ A powerful, local AI assistant capable of screen analysis and ultra-fast, high-q
 - **Screen Intelligence:** Captures and summarizes screen content using Vision LLMs (Groq) and OCR.
 - **Voice Personas:**
   - **Friday:** Warm, expressive female voice (`af_heart` - US Heart ❤️)
-  - **Jarvis:** Authoritative male voice (`am_adam`)
+  - **Echo:** Authoritative male voice (`am_adam`)
 - **Hotkeys:** Global keyboard shortcuts for instant interaction.
 - **Privacy Focused:** Runs TTS locally on your machine.
 
@@ -23,7 +23,7 @@ A powerful, local AI assistant capable of screen analysis and ultra-fast, high-q
 1. **Clone the repository:**
    ```bash
    git clone <repository-url>
-   cd jarvis-assistant
+   cd echo-assistant
    ```
 
 2. **Create a Python 3.11 environment:**
@@ -54,7 +54,7 @@ python src/assistant.py
 |----------|--------|
 | **Ctrl+Alt+S** | **Summarize Screen** - Analyzes current window content |
 | **Ctrl+Alt+D** | **Describe Screen** - Detailed visual description |
-| **Ctrl+Alt+V** | **Toggle Voice** - Switch between Friday and Jarvis |
+| **Ctrl+Alt+V** | **Toggle Voice** - Switch between Friday and Echo |
 | **Esc** | **Exit** - Shutdown the assistant |
 
 ## 📂 Project Structure

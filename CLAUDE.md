@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a **dual-purpose NLP project** combining two distinct systems:
 
-1. **JARVIS Voice Assistant** - A local AI assistant with screen analysis and ultra-fast voice interaction using Kokoro TTS
+1. **Echo Voice Assistant** - A local AI assistant with screen analysis and ultra-fast voice interaction using Kokoro TTS
 2. **Indonesian Multi-Document Summarization** - NLP research system for synthesizing Indonesian news articles
 
 ## Python Environment
@@ -26,7 +26,7 @@ pip install -r requirements.txt
 
 ## Running the Applications
 
-### JARVIS Voice Assistant
+### Echo Voice Assistant
 ```bash
 python src/assistant.py
 ```
@@ -34,7 +34,7 @@ python src/assistant.py
 **Hotkeys:**
 - `Ctrl+Alt+S` - Summarize Screen (Vision + OCR)
 - `Ctrl+Alt+D` - Describe Screen (Vision only)
-- `Ctrl+Alt+V` - Toggle Voice (Friday ↔ Jarvis)
+- `Ctrl+Alt+V` - Toggle Voice (Friday ↔ Echo)
 - `Esc` - Exit
 
 ### Indonesian Summarization System
@@ -67,7 +67,7 @@ python -m src.main --mode summarize --model textrank --input_file data/docs.json
 - Outlier Detection (2σ strict threshold)
 - Combined scoring (60% hoax, 40% outlier)
 
-### JARVIS Voice Assistant Stack
+### Echo Voice Assistant Stack
 
 ```
 src/assistant.py         # Main entry point, keyboard hotkey handling
@@ -83,7 +83,7 @@ src/assistant.py         # Main entry point, keyboard hotkey handling
 2. `assistant.py` → captures screen via `ScreenCapturer`
 3. Converts to base64 → sends to `GroqSummarizer.summarize_image()` (Vision API)
 4. If Vision fails → falls back to `OCREngine.extract_text()` → `summarize_text()`
-5. Result cleaned (markdown removal) → spoken via `JarvisVoice.speak()`
+5. Result cleaned (markdown removal) → spoken via `EchoVoice.speak()`
 
 ### Indonesian Summarization Stack
 
@@ -95,7 +95,7 @@ src/main.py               # CLI entry point
 └── src/models/
     ├── textrank.py           # Graph-based extractive (placeholder)
     ├── lexrank.py            # Eigenvector-based extractive (placeholder)
-    └── llm_groq.py           # Groq LLM abstractive (shared with JARVIS)
+    └── llm_groq.py           # Groq LLM abstractive (shared with Echo)
 ```
 
 **Flow:**
@@ -112,9 +112,9 @@ src/main.py               # CLI entry point
 - **Dataset**: Uses `csebuetnlp/xlsum` (Indonesian split) from Hugging Face with `trust_remote_code=True`.
 - **TextRank/LexRank**: Currently placeholder implementations - only return first N sentences.
 
-### JARVIS Voice System
+### Echo Voice System
 - **TTS**: Kokoro-82M model (~0.27x RTF, 4x faster than real-time).
-- **Voices**: `af_heart` (Friday - warm female), `am_adam` (Jarvis - authoritative male).
+- **Voices**: `af_heart` (Friday - warm female), `am_adam` (Echo - authoritative male).
 - **Voice Configuration**: Edit `src/voice_kokoro.py` for volume/speed adjustments.
 - **Vision Model**: Groq's `meta-llama/llama-4-scout-17b-16e-instruct` for multimodal.
 - **Text Model**: Groq's `llama-3.3-70b-versatile` for text-only summarization.
@@ -165,14 +165,14 @@ The `GroqSummarizer` supports both Vision and Text:
 ```python
 summarizer = GroqSummarizer()
 
-# Vision mode (for JARVIS)
+# Vision mode (for Echo)
 summary = summarizer.summarize_image(image_base64)
 
 # Text mode (for Indonesian summarization)
 summary = summarizer.summarize_text(text)
 ```
 
-### Voice Output (JARVIS)
+### Voice Output (Echo)
 Always clean text before TTS to remove markdown:
 ```python
 def clean_text_for_speech(text):
@@ -185,7 +185,7 @@ voice.speak(clean_text_for_speech(result))
 
 ## Development Workflow
 
-1. **Testing JARVIS**: Run `src/assistant.py` and test hotkeys on different screen content.
+1. **Testing Echo**: Run `src/assistant.py` and test hotkeys on different screen content.
 2. **Testing Summarization**: Use `src/main.py` with different models and observe output quality.
 3. **Implementing TextRank/LexRank**: Current implementations in `src/models/` are placeholders - need graph construction and ranking logic.
 4. **Evaluation**: The `Evaluator` class is ready but evaluation pipeline in `main.py` is incomplete.
@@ -212,7 +212,7 @@ Currently no automated test suite. The `tests/` directory exists but is empty.
 ## Project State
 
 **Completed:**
-- JARVIS assistant with Vision + OCR + TTS integration
+- Echo assistant with Vision + OCR + TTS integration
 - Data loading pipeline for Indonesian news
 - Preprocessing pipeline with Sastrawi stemming
 - Groq API integration for both Vision and Text modes

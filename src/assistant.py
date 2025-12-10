@@ -9,7 +9,7 @@ from src.screen_capture import ScreenCapturer
 from src.models.llm_groq import GroqSummarizer
 from src.models.gemini_summarizer import GeminiSummarizer
 from src.models.knowledge_graph import KnowledgeGraph
-from src.voice_kokoro import JarvisVoice
+from src.voice_kokoro import EchoVoice
 from src.monitor import WindowMonitor
 from src.tools.search_tool import WebSearcher
 from src.preprocessing import TextPreprocessor
@@ -26,7 +26,7 @@ except ImportError as e:
 
 
 def main():
-    print("Initializing JARVIS System...")
+    print("Initializing Echo System...")
     
     try:
         print("[DEBUG] Initializing ScreenCapturer...")
@@ -35,8 +35,8 @@ def main():
         summarizer = GroqSummarizer()
         print("[DEBUG] Initializing GeminiSummarizer...")
         gemini_summarizer = GeminiSummarizer()
-        print("[DEBUG] Initializing JarvisVoice...")
-        voice = JarvisVoice()
+        print("[DEBUG] Initializing EchoVoice...")
+        voice = EchoVoice()
         print("[DEBUG] Initializing WebSearcher...")
         searcher = WebSearcher(max_results=4)
         print("[DEBUG] Initializing TextPreprocessor...")
@@ -76,7 +76,7 @@ def main():
         traceback.print_exc()
         return
 
-    print("\n=== JARVIS Online ===")
+    print("\n=== Echo Online ===")
     
     print("Hotkeys:")
     print("  Ctrl+Alt+S: Summarize Screen")
@@ -290,7 +290,7 @@ def main():
 
             # 4. Save to KG
             kg_path = "data/persistent_kg.json"
-            kg = KnowledgeGraph(name="jarvis_memory")
+            kg = KnowledgeGraph(name="echo_memory")
             
             # Load existing if available
             if os.path.exists(kg_path):
@@ -420,7 +420,7 @@ Text Analyzed:
                 kg_path = "data/persistent_kg.json"
                 if os.path.exists(kg_path):
                     print("[KG] Checking memory for context...")
-                    kg = KnowledgeGraph(name="jarvis_memory")
+                    kg = KnowledgeGraph(name="echo_memory")
                     kg.load(kg_path)
                     
                     # Simple keyword matching
@@ -496,8 +496,8 @@ Avoid bullet points. Speak like a professional colleague.
             
             # Check if clipboard contains our own output or startup message to avoid loops
             ignore_clipboard = False
-            if "UNIFIED VERIFICATION RESULT" in query or "=== JARVIS Online ===" in query:
-                print("[Input] Clipboard contains JARVIS output/context. Ignoring to avoid loop.")
+            if "UNIFIED VERIFICATION RESULT" in query or "=== Echo Online ===" in query:
+                print("[Input] Clipboard contains Echo output/context. Ignoring to avoid loop.")
                 ignore_clipboard = True
             
             if query and len(query) > 10 and not ignore_clipboard:
@@ -600,7 +600,7 @@ SOURCE CLAIM:
             voice.speak("Protocol failed.")
 
     def toggle_voice():
-        new_persona = "jarvis" if voice.persona == "friday" else "friday"
+        new_persona = "echo" if voice.persona == "friday" else "friday"
         voice.set_persona(new_persona)
         voice.speak(f"Voice protocol switched to {new_persona.capitalize()}.")
 

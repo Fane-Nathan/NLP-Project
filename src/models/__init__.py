@@ -24,7 +24,34 @@ from .knowledge_graph import KnowledgeGraph, KGTriple
 from .fact_verifier import FactVerifier, VerificationResult
 from .constrained_summarizer import ConstrainedSummarizer
 
+# Summarizers
+from .textrank import TextRankSummarizer
+from .lexrank import LexRankSummarizer
+from .kg_enhanced_textrank import KGEnhancedTextRank
+
+# Embeddings
+from .embeddings import SentenceEmbedder, get_embedding_model, get_cache_stats
+
+# Shared embedder singleton (GPU memory efficient)
+_shared_embedder = None
+
+
+def get_shared_embedder():
+    """
+    Get or create a shared SentenceEmbedder instance.
+    
+    Using a singleton ensures:
+    - Only one GPU model load across all summarizers
+    - Shared sentence cache for faster repeated encoding
+    """
+    global _shared_embedder
+    if _shared_embedder is None:
+        _shared_embedder = SentenceEmbedder()
+    return _shared_embedder
+
+
 __all__ = [
+    # KG Components
     'EntityExtractor',
     'Entity',
     'EntityType',
@@ -38,5 +65,14 @@ __all__ = [
     'KGTriple',
     'FactVerifier',
     'VerificationResult',
-    'ConstrainedSummarizer'
+    'ConstrainedSummarizer',
+    # Summarizers
+    'TextRankSummarizer',
+    'LexRankSummarizer',
+    'KGEnhancedTextRank',
+    # Embeddings
+    'SentenceEmbedder',
+    'get_embedding_model',
+    'get_shared_embedder',
+    'get_cache_stats',
 ]

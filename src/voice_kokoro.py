@@ -7,9 +7,9 @@ import torch
 import threading
 import queue
 
-class JarvisVoice:
+class EchoVoice:
     def __init__(self):
-        print("Initializing JARVIS Voice System (Kokoro TTS)...")
+        print("Initializing Echo Voice System (Kokoro TTS)...")
         
         # Check for GPU
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -17,7 +17,7 @@ class JarvisVoice:
 
         # Available voices in Kokoro
         self.voices = {
-            "jarvis": "am_adam",      # American Male - authoritative
+            "echo": "am_adam",      # American Male - authoritative
             "friday": "af_heart"       # American Female - expressive and warm (DEMO voice!)
         }
         self.persona = "friday"  # Default to female voice
@@ -152,7 +152,7 @@ class JarvisVoice:
         self.playback_thread.join()
 
 if __name__ == "__main__":
-    voice = JarvisVoice()
+    voice = EchoVoice()
     voice.speak("This is the first sentence.")
     voice.speak("This is the second sentence, queued immediately.")
     voice.speak("And this is the third one. All should play smoothly without blocking.")
