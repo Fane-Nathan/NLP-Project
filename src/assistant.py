@@ -77,17 +77,12 @@ def main():
         return
 
     print("\n=== Echo Online ===")
-    
-    print("Hotkeys:")
-    print("  Ctrl+Alt+S: Summarize Screen")
-    print("  Ctrl+Alt+D: Describe Screen")
-    print("  Ctrl+Alt+H: Hoax Check")
-    print("  Ctrl+Alt+J: Enhanced Hoax Check (LLM)")
-    print("  Ctrl+Alt+K: Save to Knowledge Graph")
-    print("  Ctrl+Alt+W: Web Research (Clipboard)")
-    print("  Ctrl+Alt+L: Live Historian (Clipboard)")
-    print("  Ctrl+Alt+Enter: Unified Hoax Pipeline (Super Check)")
-    print("  Ctrl+Alt+V: Toggle Voice")
+
+    print("\n💡 ONE-BUTTON MODE: Auto-running full verification pipeline")
+    print("   → Screen Capture → Vision/OCR → Web Search → Hoax Check → KG → Verdict")
+    print("\nControls:")
+    print("  Space: Re-run verification on current screen")
+    print("  Ctrl+Alt+V: Toggle Voice (Friday ↔ Echo)")
     print("  Esc: Exit")
 
     # --- Proactive Monitoring ---
@@ -604,18 +599,19 @@ SOURCE CLAIM:
         voice.set_persona(new_persona)
         voice.speak(f"Voice protocol switched to {new_persona.capitalize()}.")
 
-    # Register Hotkeys
-    keyboard.add_hotkey('ctrl+alt+s', lambda: process_screen("summarize"))
-    keyboard.add_hotkey('ctrl+alt+d', lambda: process_screen("describe"))
-    keyboard.add_hotkey('ctrl+alt+h', check_hoax)
-    keyboard.add_hotkey('ctrl+alt+j', check_hoax_with_llm)
-    keyboard.add_hotkey('ctrl+alt+k', process_to_kg)
-    keyboard.add_hotkey('ctrl+alt+w', web_research_mode)
-    keyboard.add_hotkey('ctrl+alt+l', run_live_historian)
-    keyboard.add_hotkey('ctrl+alt+enter', run_unified_pipeline)
+    # Register Hotkeys (Simplified)
+    keyboard.add_hotkey('space', run_unified_pipeline)
     keyboard.add_hotkey('ctrl+alt+v', toggle_voice)
-    
-    # Keep running
+
+    # Auto-run the unified pipeline on startup
+    print("\n[Auto-Start] Running verification pipeline in 2 seconds...")
+    print("[Auto-Start] Press Esc now to cancel and exit.\n")
+    time.sleep(2)
+
+    # Run the pipeline automatically
+    run_unified_pipeline()
+
+    # Keep running for re-runs
     keyboard.wait('esc')
     
     # Cleanup
