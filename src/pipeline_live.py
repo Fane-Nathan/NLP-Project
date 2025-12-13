@@ -1,7 +1,7 @@
 # src/pipeline_live.py
 import json
 from datetime import datetime
-from ddgs import DDGS
+from duckduckgo_search import DDGS
 from src.hoax_detection import HoaxClassifier
 from src.models.gemini_summarizer import create_summarizer
 

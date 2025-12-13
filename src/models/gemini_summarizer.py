@@ -221,6 +221,116 @@ Answer in ENGLISH, max 3 paragraphs."""
             return response.text.strip()
         except Exception as e:
             return f"Cannot generate explanation: {str(e)}"
+    
+    def verify_article(
+        self, 
+        title: str,
+        content: str,
+        hoax_probability: float = None,
+        search_results: list = None
+    ) -> dict:
+        """
+        Verify article trustworthiness using LLM analysis.
+        
+        Args:
+            title: Article title.
+            content: Article content.
+            hoax_probability: Hoax detection model probability (0-1).
+            search_results: List of search result dicts for corroboration.
+            
+        Returns:
+            Dict with verdict, summary, reasoning, and confidence.
+        """
+        # Build context from search results
+        search_context = ""
+        if search_results:
+            search_context = "\n\nRELATED SOURCES FOUND:\n"
+            for i, r in enumerate(search_results[:5]):
+                search_context += f"{i+1}. {r.get('title', 'No title')} - {r.get('source', '')}\n"
+        
+        # Build hoax detection context
+        hoax_context = ""
+        if hoax_probability is not None:
+            hoax_label = "HOAX" if hoax_probability >= 0.5 else "VALID"
+            hoax_context = f"\n\nAI HOAX DETECTION: {hoax_label} ({hoax_probability:.1%} hoax probability)"
+        
+        prompt = f"""You are a professional fact-checker and news analyst.
+
+TASK: Analyze the following news article and provide a trustworthiness verdict.
+
+ARTICLE TITLE: {title}
+
+ARTICLE CONTENT (first 2000 chars):
+"{content[:2000]}"
+{hoax_context}
+{search_context}
+
+ANALYSIS CRITERIA:
+1. Source credibility signals (official sources, named experts, specific data)
+2. Language patterns (sensationalism, emotional manipulation, clickbait)
+3. Factual claims (verifiable data, dates, names)
+4. Consistency (internal logic, contradictions)
+5. Red flags (unverified claims, conspiracy language, pressure tactics)
+
+RESPOND IN THIS EXACT JSON FORMAT:
+{{
+    "verdict": "[TRUSTABLE / NOT TRUSTABLE / UNCERTAIN]",
+    "confidence": [0.0-1.0],
+    "summary": "[2-3 sentence summary of the article]",
+    "reasoning": "[2-3 sentences explaining your verdict]",
+    "red_flags": ["list of red flags if any"],
+    "credibility_signals": ["list of positive credibility signals if any"]
+}}
+
+IMPORTANT: 
+- TRUSTABLE = Good credibility signals, verifiable facts, no major red flags
+- NOT TRUSTABLE = Multiple red flags, sensationalist language, unverifiable claims
+- UNCERTAIN = Mixed signals, needs more verification, insufficient information
+
+JSON RESPONSE:"""
+
+        try:
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt
+            )
+            
+            result_text = response.text.strip()
+            
+            # Parse JSON response
+            import json
+            import re
+            
+            # Extract JSON from response (handle markdown code blocks)
+            json_match = re.search(r'\{[\s\S]*\}', result_text)
+            if json_match:
+                try:
+                    result = json.loads(json_match.group())
+                    print(f"[LLM Verifier] Verdict: {result.get('verdict', 'UNKNOWN')}")
+                    return result
+                except json.JSONDecodeError:
+                    pass
+            
+            # Fallback: return raw text in structured format
+            return {
+                "verdict": "UNCERTAIN",
+                "confidence": 0.5,
+                "summary": result_text[:200],
+                "reasoning": "Could not parse structured response",
+                "red_flags": [],
+                "credibility_signals": []
+            }
+            
+        except Exception as e:
+            print(f"[LLM Verifier] Error: {e}")
+            return {
+                "verdict": "UNCERTAIN",
+                "confidence": 0.0,
+                "summary": f"Error analyzing article: {str(e)}",
+                "reasoning": "LLM analysis failed",
+                "red_flags": [],
+                "credibility_signals": []
+            }
 
     def summarize_image(
         self, 

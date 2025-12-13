@@ -15,19 +15,19 @@ Architecture:
                                                       ↓
                                               [Verified Facts]
                                                       ↓
-                                        Constrained Summarizer
-                                          /        |        \
-                                   TextRank   LexRank    Gemini
-                                          \        |        /
-                                            [Raw Summary]
+                                            Constrained Summarizer
+                                              /       |       \
+                                         TextRank   LexRank   Gemini
+                                               \       |       /
+                                                [Raw Summary]
                                                       ↓
-                                          Fact Verification
+                                              Fact Verification
                                                       ↓
-                                          [Verified Summary]
+                                              [Verified Summary]
                                                       ↓
-                                        (Iterative Refinement)
+                                            (Iterative Refinement)
                                                       ↓
-                                        FINAL GROUNDED SUMMARY
+                                            FINAL GROUNDED SUMMARY
 """
 
 import re

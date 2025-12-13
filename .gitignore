@@ -1,41 +1,56 @@
 # Python environments
-DocumentRAG/
-DocumentRAG_py312_backup/
 venv/
 env/
+.venv/
+venv311/
+.conda/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
-# Secrets
+# Secrets & Config
 .env
+.env.local
+config.json
+secrets.json
+client_secrets.json
+*.pem
+*.key
 
-# Large Model Files
+# Data & Large Files (>100MB usually, but ignoring all data/models for safety)
+data/
+data_cache/
+checkpoints/
+models/
+kokoro/
 *.pth
 *.pt
 *.onnx
 *.bin
+*.h5
+*.gguf
+*.safetensors
 *.wav
-/models/
-checkpoints/
-models/hoax_indobert_lora/checkpoint-*/
-data/
+*.mp3
 
-# Unused/Legacy folders (if not deleted yet)
-CosyVoice/
-index-tts/
-piper/
+# Project Specific
+DocumentRAG/
+Presentation/
+.gemini/
+.agent/
+.claude/
+# Keep source code but ignore output docs if not desired (optional, keeping docx for now as per user request to have presentation script)
+# *.docx 
+~$*.docx
 
-# IDE settings
+# IDE & System
 .vscode/
 .idea/
-
-# System
 .DS_Store
 Thumbs.db
-
-# Logs
 *.log
 
-# Artifacts
-.gemini/
-data_cache/
+# Training logs
+runs/
+wandb/

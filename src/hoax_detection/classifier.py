@@ -309,6 +309,125 @@ class HoaxClassifier:
         
         return results
     
+    @torch.no_grad()
+    def predict_full_article(
+        self, 
+        text: str, 
+        chunk_size: int = 200,
+        overlap: int = 50,
+        aggregation: str = "max"
+    ) -> ClassificationResult:
+        """
+        Classify a full article by analyzing multiple chunks.
+        
+        For long articles, splits the text into overlapping chunks,
+        classifies each chunk, and aggregates the results.
+        
+        Args:
+            text: Full article text.
+            chunk_size: Number of tokens per chunk (default 200).
+            overlap: Token overlap between chunks (default 50).
+            aggregation: How to combine chunk scores:
+                - "max": Use highest hoax probability (conservative)
+                - "mean": Average all chunk probabilities
+                - "weighted": Weight by position (beginning matters more)
+                
+        Returns:
+            ClassificationResult with aggregated prediction.
+        """
+        if not text or len(text.strip()) < 10:
+            return ClassificationResult(
+                text=text[:500] + "..." if len(text) > 500 else text,
+                label="VALID",
+                confidence=0.0,
+                hoax_probability=0.0,
+                valid_probability=1.0
+            )
+        
+        # Tokenize full text to get token count
+        full_tokens = self.tokenizer.encode(text, add_special_tokens=False)
+        total_tokens = len(full_tokens)
+        
+        # If text fits in one chunk, use regular predict
+        if total_tokens <= self.max_length - 2:  # Account for [CLS] and [SEP]
+            return self.predict(text)
+        
+        # Create overlapping chunks
+        chunks = []
+        step = chunk_size - overlap
+        
+        for i in range(0, total_tokens, step):
+            chunk_tokens = full_tokens[i:i + chunk_size]
+            if len(chunk_tokens) < 20:  # Skip very short final chunks
+                break
+            # Decode back to text
+            chunk_text = self.tokenizer.decode(chunk_tokens, skip_special_tokens=True)
+            chunks.append(chunk_text)
+        
+        if not chunks:
+            return self.predict(text)
+        
+        # Debug output
+        print(f"\n[HoaxClassifier] Full Article Analysis:")
+        print(f"  Total tokens: {total_tokens}")
+        print(f"  Chunks created: {len(chunks)}")
+        
+        # Classify each chunk
+        chunk_probs = []
+        for i, chunk in enumerate(chunks):
+            encoding = self.tokenizer(
+                chunk,
+                truncation=True,
+                max_length=self.max_length,
+                padding=True,
+                return_tensors="pt"
+            )
+            
+            input_ids = encoding["input_ids"].to(self.device)
+            attention_mask = encoding["attention_mask"].to(self.device)
+            
+            outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
+            probs = torch.softmax(outputs.logits, dim=-1).cpu().numpy()[0]
+            hoax_p = float(probs[1])
+            chunk_probs.append(hoax_p)
+            
+            # Debug: show each chunk analysis
+            preview = chunk[:80].replace('\n', ' ') + "..." if len(chunk) > 80 else chunk
+            print(f"  Chunk {i+1}/{len(chunks)}: {hoax_p:.1%} hoax | \"{preview}\"")
+        
+        # Aggregate chunk probabilities
+        if aggregation == "max":
+            # Most suspicious chunk determines outcome (conservative)
+            hoax_prob = max(chunk_probs)
+        elif aggregation == "weighted":
+            # Beginning chunks weighted more heavily
+            weights = [1.0 / (i + 1) for i in range(len(chunk_probs))]
+            weight_sum = sum(weights)
+            hoax_prob = sum(p * w for p, w in zip(chunk_probs, weights)) / weight_sum
+        else:  # mean
+            hoax_prob = sum(chunk_probs) / len(chunk_probs)
+        
+        valid_prob = 1.0 - hoax_prob
+        
+        # Classification
+        if hoax_prob >= self.threshold:
+            label = "HOAX"
+            confidence = hoax_prob
+        else:
+            label = "VALID"
+            confidence = valid_prob
+        
+        # Debug: final result
+        print(f"  → Final ({aggregation}): {hoax_prob:.1%} hoax → {label}")
+        
+        return ClassificationResult(
+            text=text[:500] + "..." if len(text) > 500 else text,
+            label=label,
+            confidence=confidence,
+            hoax_probability=hoax_prob,
+            valid_probability=valid_prob
+        )
+    
     def get_hoax_score(self, text: str) -> float:
         """
         Get hoax probability score for a text.

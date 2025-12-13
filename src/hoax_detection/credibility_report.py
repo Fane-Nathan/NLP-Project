@@ -211,7 +211,10 @@ class CredibilityAnalyzer:
         self.hoax_classifier = HoaxClassifier(model_path=hoax_model_path)
         
         print("[CredibilityAnalyzer] Initializing outlier detector...")
-        self.outlier_detector = OutlierDetector(threshold_z=outlier_threshold_z)
+        self.outlier_detector = OutlierDetector(
+            threshold_z=outlier_threshold_z,
+            method="indobert"  # Use semantic embeddings instead of tfidf
+        )
         
         print("[CredibilityAnalyzer] Ready.")
     
@@ -327,9 +330,9 @@ class CredibilityAnalyzer:
         
         # === PARALLEL ANALYSIS ===
         
-        # 1. Hoax Classification
-        print("[CredibilityAnalyzer] Running hoax classification...")
-        hoax_results = self.hoax_classifier.predict_batch(documents)
+        # 1. Hoax Classification (with full article analysis)
+        print("[CredibilityAnalyzer] Running hoax classification (full article)...")
+        hoax_results = [self.hoax_classifier.predict_full_article(doc) for doc in documents]
         
         # 2. Outlier Detection
         print("[CredibilityAnalyzer] Running outlier detection...")

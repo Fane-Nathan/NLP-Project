@@ -381,6 +381,11 @@ HTML_TEMPLATE = '''
             border-color: var(--error);
         }
 
+        .pipeline-step.pending {
+            opacity: 0.4;
+            border-style: dashed;
+        }
+
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.6; }
@@ -860,6 +865,24 @@ HTML_TEMPLATE = '''
                 </div>
                 <div class="evidence-list" id="evidence-list"></div>
             </div>
+            
+            <!-- LLM Analysis Section -->
+            <div class="evidence-section" id="llm-section" style="display: none;">
+                <div class="evidence-header">
+                    <span>🤖 AI Analysis</span>
+                </div>
+                <div style="padding: 12px;">
+                    <div id="llm-reasoning" style="color: var(--fg-muted); margin-bottom: 12px;"></div>
+                    <div id="llm-red-flags" style="display: none;">
+                        <div style="color: var(--error); font-weight: 500; margin-bottom: 6px;">⚠️ Red Flags:</div>
+                        <ul id="red-flags-list" style="color: var(--error); margin: 0; padding-left: 20px;"></ul>
+                    </div>
+                    <div id="llm-credibility" style="display: none; margin-top: 12px;">
+                        <div style="color: var(--accent); font-weight: 500; margin-bottom: 6px;">✓ Credibility Signals:</div>
+                        <ul id="credibility-list" style="color: var(--accent); margin: 0; padding-left: 20px;"></ul>
+                    </div>
+                </div>
+            </div>
         </main>
 
         <aside class="sidebar">
@@ -1064,15 +1087,57 @@ HTML_TEMPLATE = '''
 
             list.innerHTML = evidence.map(e => `
                 <div class="evidence-item">
-                    <span class="evidence-icon">${e.supports ? '✅' : e.contradicts ? '❌' : '📰'}</span>
+                    <span class="evidence-icon">${e.is_trusted ? '✅' : e.supports ? '📰' : e.contradicts ? '❌' : '📰'}</span>
                     <div class="evidence-content">
                         <div class="evidence-title">${escapeHtml(e.title)}</div>
                         <div class="evidence-source">
                             ${e.url ? `<a href="${e.url}" target="_blank">${e.source || new URL(e.url).hostname}</a>` : e.source || 'Unknown source'}
+                            ${e.is_trusted ? '<span style="color: var(--accent); margin-left: 8px;">✓ Trusted</span>' : ''}
                         </div>
                     </div>
                 </div>
             `).join('');
+        }
+        
+        function renderLLMAnalysis(llmAnalysis) {
+            const section = document.getElementById('llm-section');
+            const reasoning = document.getElementById('llm-reasoning');
+            const redFlagsSection = document.getElementById('llm-red-flags');
+            const redFlagsList = document.getElementById('red-flags-list');
+            const credibilitySection = document.getElementById('llm-credibility');
+            const credibilityList = document.getElementById('credibility-list');
+            
+            if (!llmAnalysis) {
+                section.style.display = 'none';
+                return;
+            }
+            
+            section.style.display = 'block';
+            
+            // Set reasoning
+            if (llmAnalysis.reasoning) {
+                reasoning.textContent = llmAnalysis.reasoning;
+            }
+            
+            // Render red flags
+            if (llmAnalysis.red_flags && llmAnalysis.red_flags.length > 0) {
+                redFlagsSection.style.display = 'block';
+                redFlagsList.innerHTML = llmAnalysis.red_flags.map(flag => 
+                    `<li>${escapeHtml(flag)}</li>`
+                ).join('');
+            } else {
+                redFlagsSection.style.display = 'none';
+            }
+            
+            // Render credibility signals
+            if (llmAnalysis.credibility_signals && llmAnalysis.credibility_signals.length > 0) {
+                credibilitySection.style.display = 'block';
+                credibilityList.innerHTML = llmAnalysis.credibility_signals.map(signal => 
+                    `<li>${escapeHtml(signal)}</li>`
+                ).join('');
+            } else {
+                credibilitySection.style.display = 'none';
+            }
         }
 
         function escapeHtml(text) {
@@ -1130,9 +1195,29 @@ HTML_TEMPLATE = '''
             speak('Starting verification analysis.');
 
             try {
-                // Step 1: Fetch
-                setStep('fetch', 'active');
-                await sleep(300);
+                // Timer-based progress animation while waiting for API
+                const steps = ['fetch', 'trust', 'search', 'kg', 'verdict'];
+                const stepMessages = [
+                    'Fetching article content...',
+                    'Analyzing with Trust Layer...',
+                    'Searching for corroboration...',
+                    'Building Knowledge Graph...',
+                    'Generating verdict...'
+                ];
+                
+                let currentStep = 0;
+                setStep(steps[currentStep], 'active');
+                summary.textContent = stepMessages[currentStep];
+                
+                // Advance steps every 3 seconds while waiting
+                const progressInterval = setInterval(() => {
+                    if (currentStep < steps.length - 1) {
+                        setStep(steps[currentStep], 'done');
+                        currentStep++;
+                        setStep(steps[currentStep], 'active');
+                        summary.textContent = stepMessages[currentStep];
+                    }
+                }, 3000);
 
                 const response = await fetch('/api/verify', {
                     method: 'POST',
@@ -1140,32 +1225,17 @@ HTML_TEMPLATE = '''
                     body: JSON.stringify(input)
                 });
 
+                // Stop progress timer
+                clearInterval(progressInterval);
+                
                 const data = await response.json();
-                setStep('fetch', 'done');
+                
+                // Mark all steps as done
+                steps.forEach(step => setStep(step, 'done'));
 
                 if (data.error) {
                     throw new Error(data.error);
                 }
-
-                // Step 2: Trust Layer
-                setStep('trust', 'active');
-                await sleep(200);
-                setStep('trust', 'done');
-
-                // Step 3: Web Search
-                setStep('search', 'active');
-                await sleep(200);
-                setStep('search', 'done');
-
-                // Step 4: Knowledge Graph
-                setStep('kg', 'active');
-                await sleep(200);
-                setStep('kg', 'done');
-
-                // Step 5: Verdict
-                setStep('verdict', 'active');
-                await sleep(200);
-                setStep('verdict', 'done');
 
                 // Display results
                 const verdictClass = data.verdict === 'TRUE' ? 'true' :
@@ -1184,6 +1254,7 @@ HTML_TEMPLATE = '''
                 // Render documents and evidence
                 if (data.documents) renderDocuments(data.documents);
                 if (data.evidence) renderEvidence(data.evidence);
+                if (data.llm_analysis) renderLLMAnalysis(data.llm_analysis);
 
                 // TTS for verdict
                 const ttsText = `Verdict: ${data.verdict}. ${data.summary}`;
@@ -1202,23 +1273,39 @@ HTML_TEMPLATE = '''
             return new Promise(resolve => setTimeout(resolve, ms));
         }
 
-        // Check for URL parameter (from bookmarklet)
-        const urlParams = new URLSearchParams(window.location.search);
-        const verifyParam = urlParams.get('verify');
-        if (verifyParam) {
-            document.getElementById('url-input').value = decodeURIComponent(verifyParam);
-            setTimeout(() => verifyURL(), 500);
-        }
-
-        // Keyboard shortcuts
-        document.addEventListener('keydown', (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                e.preventDefault();
-                const activeTab = document.querySelector('.input-tab.active').dataset.tab;
-                if (activeTab === 'url') verifyURL();
-                else if (activeTab === 'text') verifyText();
-                else verifyClipboard();
+        // Initialize after DOM is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check for URL parameter (from bookmarklet)
+            const urlParams = new URLSearchParams(window.location.search);
+            const verifyParam = urlParams.get('verify');
+            if (verifyParam) {
+                console.log('[Bookmarklet] URL param found:', verifyParam);
+                // Switch to URL tab and auto-fill
+                switchTab('url');
+                const urlInput = document.getElementById('url-input');
+                if (urlInput) {
+                    urlInput.value = decodeURIComponent(verifyParam);
+                    console.log('[Bookmarklet] Filled input:', urlInput.value);
+                }
+                // Clear the URL parameter to prevent re-triggering on refresh
+                window.history.replaceState({}, document.title, window.location.pathname);
+                // Start verification after a delay
+                setTimeout(() => {
+                    console.log('[Bookmarklet] Starting verification...');
+                    verifyURL();
+                }, 1500);
             }
+
+            // Keyboard shortcuts
+            document.addEventListener('keydown', (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                    e.preventDefault();
+                    const activeTab = document.querySelector('.input-tab.active').dataset.tab;
+                    if (activeTab === 'url') verifyURL();
+                    else if (activeTab === 'text') verifyText();
+                    else verifyClipboard();
+                }
+            });
         });
     </script>
 </body>
@@ -1246,12 +1333,14 @@ def verify():
         # Step 1: Fetch content if URL
         documents = []
         source_url = None
+        article_title = None  # Store title for search query
 
         if input_type == 'url':
             source_url = content
             fetched = fetch_url_content(content)
             if fetched:
                 documents = [fetched['text']]
+                article_title = fetched.get('title', '')  # Get title for search
             else:
                 return jsonify({'error': 'Could not fetch URL content'}), 400
         else:
@@ -1285,20 +1374,18 @@ def verify():
             )
             filtered_docs, report = analyzer.filter_documents(documents)
 
-            if hasattr(report, 'document_scores'):
+            if hasattr(report, 'documents') and report.documents:
                 hoax_probs = []
-                for i, score_data in enumerate(report.document_scores):
+                for i, doc_cred in enumerate(report.documents):
                     if i < len(doc_analysis):
-                        cred = score_data.get('credibility_score', 0)
-                        hoax = score_data.get('hoax_probability', 0)
-                        doc_analysis[i]['credibility_score'] = cred
-                        doc_analysis[i]['hoax_probability'] = hoax
-                        hoax_probs.append(hoax)
+                        doc_analysis[i]['credibility_score'] = doc_cred.credibility_score
+                        doc_analysis[i]['hoax_probability'] = doc_cred.hoax_probability
+                        hoax_probs.append(doc_cred.hoax_probability)
 
-                        if score_data.get('is_hoax', False):
+                        if doc_cred.hoax_label == "HOAX":
                             doc_analysis[i]['status'] = 'hoax'
                             hoax_detected = True
-                        elif score_data.get('is_outlier', False):
+                        elif doc_cred.is_outlier:
                             doc_analysis[i]['status'] = 'outlier'
 
                 if hoax_probs:
@@ -1309,30 +1396,82 @@ def verify():
         except Exception as e:
             print(f"Trust layer error: {e}")
 
-        # Step 3: Web Search for corroboration
+        # Step 3: Web Search for corroboration (with content fetching)
         evidence = []
         search_supports = 0
         search_contradicts = 0
+        fetched_contents = []  # Store fetched content for LLM analysis
 
         try:
-            from src.tools.search_tool import WebSearcher
-            searcher = WebSearcher(max_results=5)
+            from src.tools.enhanced_search import EnhancedSearcher
+            searcher = EnhancedSearcher(max_results=15)
 
-            # Generate search query from content
-            search_query = generate_search_query(documents[0][:500])
-            results = searcher.search(search_query)
+            # Generate search query from title (cleaner) or content as fallback
+            if article_title and article_title.strip() and article_title != "Unknown":
+                search_query = article_title.strip()  # Use clean title directly
+            elif documents:
+                # Extract key phrases from content (first 50 words)
+                search_query = generate_search_query(documents[0][:1000])
+            else:
+                search_query = "news verification"
+            print(f"[EnhancedSearcher] Query: {search_query[:80]}...")
+            
+            # Search AND fetch content from top 3 results
+            results = searcher.search_and_fetch_sync(search_query, max_fetch=3)
+            
+            # Analyze source credibility of search results
+            corroboration = None
+            try:
+                from src.tools.source_credibility import SourceCredibilityAnalyzer
+                credibility_analyzer = SourceCredibilityAnalyzer()
+                # Convert SearchResult objects to dicts for credibility analyzer
+                results_dicts = [{'url': r.url, 'title': r.title, 'snippet': r.snippet} for r in results]
+                corroboration = credibility_analyzer.analyze_search_results(
+                    results_dicts,
+                    original_title=article_title or "",
+                    original_content=documents[0] if documents else ""
+                )
+            except Exception as e:
+                print(f"[SourceCredibilityAnalyzer] Error: {e}")
 
             for r in results[:5]:
-                supports = False
-                contradicts = False
-                # Simple heuristic: check if result mentions similar entities
+                # Check if source is trusted from credibility analysis
+                is_trusted = False
+                source_name = r.domain
+                
+                if corroboration:
+                    # Find this source in the analysis
+                    for src in corroboration.sources:
+                        if src.url == r.url:
+                            is_trusted = src.is_trusted
+                            source_name = src.source_name
+                            break
+                
                 evidence.append({
-                    'title': r.get('title', 'No title'),
-                    'url': r.get('url', ''),
-                    'source': r.get('source', ''),
-                    'supports': supports,
-                    'contradicts': contradicts
+                    'title': r.title,
+                    'url': r.url,
+                    'source': source_name,
+                    'snippet': r.snippet,
+                    'is_trusted': is_trusted,
+                    'has_content': r.fetch_success,
+                    'content_preview': r.content[:200] + "..." if r.content and len(r.content) > 200 else r.content,
+                    'supports': is_trusted,  # Trusted sources count as support
+                    'contradicts': False
                 })
+                
+                # Store fetched content for LLM analysis
+                if r.content:
+                    fetched_contents.append({
+                        'source': source_name,
+                        'url': r.url,
+                        'content': r.content[:2000],
+                        'is_trusted': is_trusted
+                    })
+            
+            # Store corroboration result for LLM
+            if corroboration:
+                search_supports = corroboration.num_trusted
+                search_contradicts = corroboration.num_suspicious
 
         except ImportError:
             pass
@@ -1350,7 +1489,23 @@ def verify():
         except ImportError:
             pass
 
-        # Step 5: Generate Verdict
+        # Step 5: LLM Verification (Gemini)
+        llm_verdict = None
+        try:
+            from src.models.gemini_summarizer import GeminiSummarizer
+            llm = GeminiSummarizer()
+            
+            llm_verdict = llm.verify_article(
+                title=article_title or "Unknown",
+                content=documents[0] if documents else "",
+                hoax_probability=avg_hoax_prob if hoax_detected else None,
+                search_results=evidence
+            )
+            print(f"[LLM Verifier] Summary: {llm_verdict.get('summary', '')[:100]}...")
+        except Exception as e:
+            print(f"[LLM Verifier] Skipped: {e}")
+
+        # Step 6: Generate Final Verdict
         verdict, summary, confidence = generate_verdict(
             documents=documents,
             doc_analysis=doc_analysis,
@@ -1359,13 +1514,20 @@ def verify():
             evidence=evidence,
             kg_confidence=kg_confidence
         )
+        
+        # Use LLM verdict if available
+        if llm_verdict and llm_verdict.get('verdict'):
+            verdict = llm_verdict.get('verdict', verdict)
+            summary = llm_verdict.get('summary', summary)
+            confidence = llm_verdict.get('confidence', confidence)
 
         return jsonify({
             'verdict': verdict,
             'summary': summary,
             'confidence': confidence,
             'documents': doc_analysis,
-            'evidence': evidence
+            'evidence': evidence,
+            'llm_analysis': llm_verdict  # Include detailed LLM analysis
         })
 
     except Exception as e:
@@ -1374,8 +1536,225 @@ def verify():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/verify-stream', methods=['POST'])
+def verify_stream():
+    """
+    SSE streaming verification endpoint.
+    Streams progress events as the verification runs.
+    """
+    from flask import Response
+    import json
+    
+    data = request.json
+    input_type = data.get('type', 'text')
+    content = data.get('content', '').strip()
+    
+    def generate():
+        try:
+            # Helper to send SSE event
+            def send_event(step, status, message=""):
+                event_data = json.dumps({'step': step, 'status': status, 'message': message})
+                return f"data: {event_data}\n\n"
+            
+            if not content:
+                yield send_event('error', 'error', 'No content provided')
+                return
+            
+            # Step 1: FETCH
+            yield send_event('fetch', 'active', 'Fetching article content...')
+            
+            documents = []
+            article_title = None
+            
+            if input_type == 'url':
+                fetched = fetch_url_content(content)
+                if fetched:
+                    documents = [fetched['text']]
+                    article_title = fetched.get('title', '')
+                else:
+                    yield send_event('fetch', 'error', 'Could not fetch URL')
+                    return
+            else:
+                documents = [p.strip() for p in content.split('\n\n') if p.strip()]
+                if not documents:
+                    documents = [content]
+            
+            yield send_event('fetch', 'done', f'Fetched {len(documents)} document(s)')
+            
+            # Step 2: TRUST LAYER
+            yield send_event('trust', 'active', 'Running hoax detection...')
+            
+            hoax_detected = False
+            avg_hoax_prob = 0
+            doc_analysis = []
+            
+            try:
+                from src.hoax_detection.credibility_report import CredibilityAnalyzer
+                analyzer = CredibilityAnalyzer(
+                    hoax_model_path="models/hoax_indobert_lora",
+                    outlier_threshold_z=2.0
+                )
+                report = analyzer.analyze(documents)
+                
+                if report.documents:
+                    for doc_result in report.documents:
+                        doc_analysis.append({
+                            'text': doc_result.text[:200] + '...',
+                            'hoax_probability': doc_result.hoax_probability,
+                            'hoax_label': doc_result.hoax_label,
+                            'credibility_score': doc_result.credibility_score
+                        })
+                        if doc_result.hoax_label == 'HOAX':
+                            hoax_detected = True
+                        avg_hoax_prob += doc_result.hoax_probability
+                    
+                    avg_hoax_prob /= len(report.documents)
+            except Exception as e:
+                print(f"Trust layer error: {e}")
+            
+            yield send_event('trust', 'done', f'Hoax probability: {avg_hoax_prob:.1%}')
+            
+            # Step 3: WEB SEARCH
+            yield send_event('search', 'active', 'Searching for corroboration...')
+            
+            evidence = []
+            search_supports = 0
+            
+            try:
+                from src.tools.enhanced_search import EnhancedSearcher
+                searcher = EnhancedSearcher(max_results=15)
+                
+                search_query = article_title if article_title else generate_search_query(documents[0][:1000])
+                results = searcher.search_and_fetch_sync(search_query, max_fetch=7)
+                
+                # Analyze credibility
+                from src.tools.source_credibility import SourceCredibilityAnalyzer
+                credibility_analyzer = SourceCredibilityAnalyzer()
+                results_dicts = [{'url': r.url, 'title': r.title, 'snippet': r.snippet} for r in results]
+                corroboration = credibility_analyzer.analyze_search_results(results_dicts)
+                
+                for r in results[:5]:
+                    is_trusted = False
+                    source_name = r.domain
+                    if corroboration:
+                        for src in corroboration.sources:
+                            if src.url == r.url:
+                                is_trusted = src.is_trusted
+                                source_name = src.source_name
+                                break
+                    
+                    evidence.append({
+                        'title': r.title,
+                        'url': r.url,
+                        'source': source_name,
+                        'is_trusted': is_trusted
+                    })
+                
+                search_supports = corroboration.num_trusted if corroboration else 0
+            except Exception as e:
+                print(f"Search error: {e}")
+            
+            yield send_event('search', 'done', f'Found {len(evidence)} sources, {search_supports} trusted')
+            
+            # Step 4: KNOWLEDGE GRAPH
+            yield send_event('kg', 'active', 'Building knowledge graph...')
+            
+            kg_stats = {'entities': 0, 'relations': 0}
+            try:
+                from src.models.knowledge_graph import KnowledgeGraph
+                kg = KnowledgeGraph(name="verify_kg")
+                kg.add_documents(documents, show_progress=False)
+                kg_stats = kg.get_stats()
+            except Exception as e:
+                print(f"KG error: {e}")
+            
+            yield send_event('kg', 'done', f'{kg_stats.get("entities", 0)} entities found')
+            
+            # Step 5: LLM VERDICT
+            yield send_event('verdict', 'active', 'Generating LLM verdict...')
+            
+            llm_verdict = None
+            try:
+                from src.models.gemini_summarizer import GeminiSummarizer
+                llm = GeminiSummarizer()
+                llm_verdict = llm.verify_article(
+                    title=article_title or "Unknown",
+                    content=documents[0] if documents else "",
+                    hoax_probability=avg_hoax_prob if hoax_detected else None,
+                    search_results=evidence
+                )
+            except Exception as e:
+                print(f"LLM error: {e}")
+            
+            # Final verdict
+            verdict = "UNCERTAIN"
+            summary = "Analysis complete."
+            confidence = 0.5
+            
+            if llm_verdict:
+                verdict = llm_verdict.get('verdict', 'UNCERTAIN')
+                summary = llm_verdict.get('summary', 'Analysis complete.')
+                confidence = llm_verdict.get('confidence', 0.5)
+            elif hoax_detected:
+                verdict = "NOT TRUSTABLE"
+                summary = f"High hoax probability detected: {avg_hoax_prob:.1%}"
+                confidence = avg_hoax_prob
+            
+            yield send_event('verdict', 'done', verdict)
+            
+            # Send final result
+            final_result = {
+                'step': 'complete',
+                'status': 'done',
+                'result': {
+                    'verdict': verdict,
+                    'summary': summary,
+                    'confidence': confidence,
+                    'documents': doc_analysis,
+                    'evidence': evidence,
+                    'llm_analysis': llm_verdict
+                }
+            }
+            yield f"data: {json.dumps(final_result)}\n\n"
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            yield f"data: {json.dumps({'step': 'error', 'status': 'error', 'message': str(e)})}\n\n"
+    
+    return Response(
+        generate(), 
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',  # Disable nginx buffering
+            'Connection': 'keep-alive'
+        }
+    )
+
+
 def fetch_url_content(url: str) -> Optional[Dict]:
-    """Fetch and extract text content from URL."""
+    """
+    Fetch and extract clean article content from URL.
+    Uses crawl4ai with PruningContentFilter for garbage-free extraction.
+    Falls back to simple extraction if crawl4ai fails.
+    """
+    # Try crawl4ai first (better quality)
+    try:
+        from src.article_extractor import extract_article_sync
+        result = extract_article_sync(url, timeout=30000)
+        
+        if result.success and result.clean_length > 100:
+            return {
+                'url': url,
+                'text': result.content[:10000],  # Allow more text for full article analysis
+                'title': result.title or 'Unknown'
+            }
+        # Fall through to fallback if crawl4ai returned empty content
+    except Exception as e:
+        print(f"[fetch_url] Crawl4AI error, using fallback: {e}")
+    
+    # Fallback: Simple HTML extraction
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -1393,11 +1772,11 @@ def fetch_url_content(url: str) -> Optional[Dict]:
                 self.skip = False
 
             def handle_starttag(self, tag, attrs):
-                if tag in ['script', 'style', 'nav', 'header', 'footer']:
+                if tag in ['script', 'style', 'nav', 'header', 'footer', 'aside']:
                     self.skip = True
 
             def handle_endtag(self, tag):
-                if tag in ['script', 'style', 'nav', 'header', 'footer']:
+                if tag in ['script', 'style', 'nav', 'header', 'footer', 'aside']:
                     self.skip = False
 
             def handle_data(self, data):
@@ -1418,7 +1797,7 @@ def fetch_url_content(url: str) -> Optional[Dict]:
 
         return {
             'url': url,
-            'text': text[:5000],  # Limit text length
+            'text': text[:10000],  # Allow more text
             'title': extract_title(response.text)
         }
 

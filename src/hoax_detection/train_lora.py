@@ -7,17 +7,18 @@ Dataset: TurnBackHoax (Mafindo) - ~2,000 samples
 Usage:
     python -m src.hoax_detection.train_lora --data_path data/turnbackhoax.csv
     
-Memory Optimizations:
-    - LoRA rank r=8 (minimal memory overhead)
-    - Gradient checkpointing enabled
+Features:
+    - Graceful Ctrl+C save (saves checkpoint before exit)
+    - LoRA with configurable rank
     - Mixed precision (FP16) training
-    - Micro-batch size of 4 with gradient accumulation
-    - 8-bit Adam optimizer
+    - Automatic checkpointing
 """
 
 import os
 import argparse
 import json
+import signal
+import sys
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 
@@ -36,21 +37,23 @@ from transformers import (
     TrainingArguments,
     Trainer,
     DataCollatorWithPadding,
-    EarlyStoppingCallback
+    EarlyStoppingCallback,
+    BitsAndBytesConfig  # QLoRA 4-bit quantization
 )
 from peft import (
     LoraConfig,
     get_peft_model,
     TaskType,
-    PeftModel
+    PeftModel,
+    prepare_model_for_kbit_training  # For QLoRA
 )
 
 # Constants
 MODEL_NAME = "indobenchmark/indobert-base-p1"
-MAX_LENGTH = 128  # Reduced for memory efficiency
-LORA_R = 8        # LoRA rank (lower = less memory)
-LORA_ALPHA = 16   # Scaling factor
-LORA_DROPOUT = 0.1
+MAX_LENGTH = 256  # Optimized for GTX 1650 (good balance of speed/quality)
+LORA_R = 16       # Higher rank = more capacity for generalization
+LORA_ALPHA = 32   # Scaling factor (typically 2x rank)
+LORA_DROPOUT = 0.05  # Lower dropout during training
 
 
 @dataclass
@@ -354,17 +357,16 @@ def train_lora_model(
     print("\n[2/5] Loading tokenizer and model...")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     
-    # Load base model
+    # Load base model (FP32 base, trainer handles mixed precision)
     base_model = AutoModelForSequenceClassification.from_pretrained(
         MODEL_NAME,
         num_labels=2,
         id2label={0: "VALID", 1: "HOAX"},
         label2id={"VALID": 0, "HOAX": 1},
-        use_safetensors=True  # Fix for CVE-2025-32434
+        use_safetensors=True
     )
     
-    # Enable gradient checkpointing for memory efficiency
-    base_model.gradient_checkpointing_enable()
+    # Note: gradient checkpointing disabled for FP16 compatibility
     
     # Configure LoRA
     print("\n[3/5] Applying LoRA configuration...")
@@ -373,8 +375,9 @@ def train_lora_model(
         r=LORA_R,
         lora_alpha=LORA_ALPHA,
         lora_dropout=LORA_DROPOUT,
-        target_modules=["query", "key", "value"],  # Target attention layers
-        bias="none",
+        target_modules=["query", "key", "value", "dense"],
+        modules_to_save=["classifier"],
+        bias="lora_only",
         inference_mode=False
     )
     
@@ -394,27 +397,29 @@ def train_lora_model(
         output_dir=output_dir,
         num_train_epochs=num_epochs,
         per_device_train_batch_size=batch_size,
-        per_device_eval_batch_size=batch_size * 2,  # Larger eval batch (no gradients)
-        gradient_accumulation_steps=2,  # Reduced from 4
+        per_device_eval_batch_size=batch_size * 4,  # Larger eval batch
+        gradient_accumulation_steps=4,  # Effective batch = 16
         learning_rate=learning_rate,
         weight_decay=0.01,
-        warmup_ratio=0.1,
+        warmup_ratio=0.06,  # Faster warmup
+        lr_scheduler_type="cosine",  # Better scheduler
         
-        # Memory optimizations
+        # Speed optimizations for regular LoRA
         fp16=True,
-        optim="adamw_torch_fused",  # Faster fused optimizer
-        gradient_checkpointing=False,  # Disable for speed (if VRAM allows)
+        optim="adamw_torch_fused",
+        gradient_checkpointing=False,  # Disabled for FP16 compatibility
         
-        # Speed optimizations
-        dataloader_num_workers=2,  # Parallel data loading
-        dataloader_pin_memory=True,  # Faster GPU transfer
+        # Faster data loading
+        dataloader_num_workers=4,
+        dataloader_pin_memory=True,
+        dataloader_prefetch_factor=2,
         
-        # Less frequent evaluation (saves time)
+        # Less frequent evaluation (much faster!)
         eval_strategy="steps",
-        eval_steps=500,  # Every 500 steps instead of every epoch
+        eval_steps=1000,
         save_strategy="steps",
-        save_steps=500,
-        logging_steps=50,
+        save_steps=1000,
+        logging_steps=100,
         
         load_best_model_at_end=True,
         metric_for_best_model="f1",
@@ -436,10 +441,38 @@ def train_lora_model(
         callbacks=[EarlyStoppingCallback(early_stopping_patience=2)]
     )
     
+    # Setup graceful Ctrl+C handler
+    def save_on_interrupt(signum, frame):
+        print("\n\n[!] Interrupt received! Saving model before exit...")
+        try:
+            trainer.save_model(output_dir)
+            tokenizer.save_pretrained(output_dir)
+            print(f"[✓] Model saved to {output_dir}")
+        except Exception as e:
+            print(f"[!] Error saving: {e}")
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, save_on_interrupt)
+    
+    # Check for existing checkpoints to resume from
+    resume_checkpoint = None
+    if os.path.exists(output_dir):
+        checkpoints = [d for d in os.listdir(output_dir) if d.startswith("checkpoint-")]
+        if checkpoints:
+            # Get the latest checkpoint by step number
+            latest = max(checkpoints, key=lambda x: int(x.split("-")[1]))
+            resume_checkpoint = os.path.join(output_dir, latest)
+            print(f"\n[Resume] Found checkpoint: {latest}")
+    
     # Train
-    print("\n[5/5] Training...")
+    print("\n[5/5] Training... (Press Ctrl+C to save and exit)")
     print("-" * 40)
-    trainer.train()
+    
+    if resume_checkpoint:
+        print(f"[Resume] Resuming from {resume_checkpoint}")
+        trainer.train(resume_from_checkpoint=resume_checkpoint)
+    else:
+        trainer.train()
     
     # Save model
     print("\n[Save] Saving LoRA adapters...")
