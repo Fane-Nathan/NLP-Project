@@ -122,7 +122,29 @@ class EnhancedSearcher:
         
         print(f"[EnhancedSearcher] Found {len(results)} results")
         return results
-    
+
+    def search_sync(self, query: str, max_results: int = 5) -> List[SearchResult]:
+        """
+        Search and return SearchResult objects (synchronous).
+
+        Args:
+            query: Search query.
+            max_results: Maximum number of results.
+
+        Returns:
+            List of SearchResult objects.
+        """
+        raw_results = self.search(query)
+        results = []
+        for r in raw_results[:max_results]:
+            results.append(SearchResult(
+                title=r.get('title', ''),
+                url=r.get('url', ''),
+                snippet=r.get('snippet', ''),
+                domain=r.get('domain', '')
+            ))
+        return results
+
     async def fetch_content(self, url: str, timeout: int = 15000) -> Optional[str]:
         """
         Fetch clean content from URL using Crawl4AI.
@@ -225,8 +247,8 @@ class EnhancedSearcher:
         return results
     
     def search_and_fetch_sync(
-        self, 
-        query: str, 
+        self,
+        query: str,
         max_fetch: int = 3,
         timelimit: Optional[str] = None
     ) -> List[SearchResult]:
@@ -236,10 +258,20 @@ class EnhancedSearcher:
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-        
+
         return loop.run_until_complete(
             self.search_and_fetch(query, max_fetch, timelimit)
         )
+
+    def fetch_url_content(self, url: str, timeout: int = 15000) -> Optional[str]:
+        """Synchronous wrapper for fetch_content."""
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        return loop.run_until_complete(self.fetch_content(url, timeout))
 
 
 # Factory function

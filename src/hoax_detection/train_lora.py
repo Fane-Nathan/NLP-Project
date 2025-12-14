@@ -50,6 +50,7 @@ from peft import (
 
 # Constants
 MODEL_NAME = "indobenchmark/indobert-base-p1"
+MODEL_REVISION = "c2cd0b51ddce6580eb35263b39b0a1e5fb0a39e2"  # Pinned for supply chain security
 MAX_LENGTH = 256  # Optimized for GTX 1650 (good balance of speed/quality)
 LORA_R = 16       # Higher rank = more capacity for generalization
 LORA_ALPHA = 32   # Scaling factor (typically 2x rank)
@@ -355,7 +356,7 @@ def train_lora_model(
     
     # Load tokenizer
     print("\n[2/5] Loading tokenizer and model...")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, revision=MODEL_REVISION)
     
     # Load base model (FP32 base, trainer handles mixed precision)
     base_model = AutoModelForSequenceClassification.from_pretrained(
@@ -363,7 +364,8 @@ def train_lora_model(
         num_labels=2,
         id2label={0: "VALID", 1: "HOAX"},
         label2id={"VALID": 0, "HOAX": 1},
-        use_safetensors=True
+        use_safetensors=True,
+        revision=MODEL_REVISION
     )
     
     # Note: gradient checkpointing disabled for FP16 compatibility

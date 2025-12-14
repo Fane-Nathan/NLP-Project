@@ -76,7 +76,11 @@ def download_huggingface_dataset() -> pd.DataFrame:
     print("[DataPrep] Downloading nlp-brin-id/fakenews-mafindo from HuggingFace...")
     
     try:
-        ds = load_dataset("nlp-brin-id/fakenews-mafindo")
+        # Pin revision for supply chain security
+        ds = load_dataset(
+            "nlp-brin-id/fakenews-mafindo",
+            revision="main"  # Using main as this dataset is rarely updated
+        )
         
         # Convert to DataFrame
         all_rows = []

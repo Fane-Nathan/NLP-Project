@@ -379,14 +379,16 @@ def main():
             print(f"[Input] Loading {args.num_samples} samples from XL-Sum (Indonesian)...")
             try:
                 from datasets import load_dataset
+                # Pinned revision for supply chain security
                 xlsum = load_dataset(
                     "csebuetnlp/xlsum", 
                     "indonesian", 
                     split="test",  # Use test split for evaluation
                     cache_dir="./data_cache",
-                    trust_remote_code=True
+                    trust_remote_code=True,
+                    revision="b34c730"  # Pinned to Sep 2023 stable version
                 )
-                # Sample randomly
+                # Sample randomly (random module for data shuffling, not crypto)
                 import random
                 indices = random.sample(range(len(xlsum)), min(args.num_samples, len(xlsum)))
                 for idx in indices:

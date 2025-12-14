@@ -1,0 +1,14 @@
+.git
+.gitignore
+venv
+venv311
+__pycache__
+*.pyc
+.env
+notebooks
+tests
+checkpoints
+data_cache
+.vscode
+.idea
+*.log

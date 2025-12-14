@@ -15,7 +15,13 @@ env_path = os.path.abspath(".env")
 print(f"[LlamaIndex] Loading .env from: {env_path}")
 load_dotenv(env_path)
 
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+try:
+    from llama_index.embeddings.gemini import GeminiEmbedding
+except ImportError:
+    print("[LlamaIndex] Warning: llama-index-embeddings-gemini not installed. pip install llama-index-embeddings-gemini")
+    # Fallback or error handled later
+    GeminiEmbedding = None
+
 
 class LlamaIndexManager:
     def __init__(self, storage_dir="data/llama_storage", model_name="models/gemini-2.5-flash-lite"):
@@ -32,10 +38,14 @@ class LlamaIndexManager:
         
         Settings.llm = Gemini(model="models/gemini-2.0-flash-lite", api_key=api_key)
         
-        # Use local HF embeddings (free and fast)
-        # BAAI/bge-m3 is great for multilingual (including Indonesian)
-        print("[LlamaIndex] Loading embedding model (BAAI/bge-m3)...")
-        Settings.embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-m3")
+        if GeminiEmbedding:
+            print("[LlamaIndex] Using Gemini Embeddings (Zero VRAM)...")
+            Settings.embed_model = GeminiEmbedding(model_name="models/text-embedding-004", api_key=api_key)
+        else:
+            print("[LlamaIndex] Fallback to HF Embeddings (VRAM intensive)...")
+            from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+            Settings.embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-m3")
+
         
         self.index = self._load_or_create_index()
 

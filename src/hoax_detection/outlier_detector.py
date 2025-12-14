@@ -36,6 +36,7 @@ class EmbeddingMethod(Enum):
     """Embedding method for similarity calculation."""
     TFIDF = "tfidf"
     INDOBERT = "indobert"
+    INDO_E5 = "indo-e5"  # Use SentenceEmbedder with indo-e5-small
 
 
 @dataclass
@@ -113,8 +114,9 @@ class OutlierDetector:
         self,
         threshold_z: float = 2.0,  # STRICT: 2 standard deviations
         method: Union[str, EmbeddingMethod] = EmbeddingMethod.TFIDF,
-        min_documents: int = 3,
-        indobert_model: str = "indobenchmark/indobert-base-p1"
+        min_documents: int = 1,  # Allow single document analysis
+        indobert_model: str = "indobenchmark/indobert-base-p1",
+        indobert_revision: str = "c2cd0b51ddce6580eb35263b39b0a1e5fb0a39e2"  # Pinned for security
     ):
         """
         Initialize the outlier detector.
@@ -129,6 +131,7 @@ class OutlierDetector:
         self.method = EmbeddingMethod(method) if isinstance(method, str) else method
         self.min_documents = min_documents
         self.indobert_model = indobert_model
+        self.indobert_revision = indobert_revision
         
         # Initialize vectorizer for TF-IDF
         self.tfidf_vectorizer = TfidfVectorizer(
@@ -143,7 +146,10 @@ class OutlierDetector:
         self._bert_tokenizer = None
         self._bert_model = None
         self._device = None
-        
+
+        # SentenceEmbedder for indo-e5 (lazy loading)
+        self._sentence_embedder = None
+
         print(f"[OutlierDetector] Initialized")
         print(f"  Method: {self.method.value}")
         print(f"  Threshold: {self.threshold_z}σ (STRICT)" if threshold_z == 2.0 else f"  Threshold: {self.threshold_z}σ")
@@ -157,8 +163,14 @@ class OutlierDetector:
             print(f"[OutlierDetector] Loading IndoBERT: {self.indobert_model}")
             
             self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            self._bert_tokenizer = AutoTokenizer.from_pretrained(self.indobert_model)
-            self._bert_model = AutoModel.from_pretrained(self.indobert_model)
+            self._bert_tokenizer = AutoTokenizer.from_pretrained(
+                self.indobert_model,
+                revision=self.indobert_revision
+            )
+            self._bert_model = AutoModel.from_pretrained(
+                self.indobert_model,
+                revision=self.indobert_revision
+            )
             self._bert_model.to(self._device)
             self._bert_model.eval()
             
@@ -174,12 +186,12 @@ class OutlierDetector:
     def _get_bert_embeddings(self, documents: List[str], batch_size: int = 8) -> np.ndarray:
         """Get IndoBERT embeddings using mean pooling."""
         self._load_indobert()
-        
+
         all_embeddings = []
-        
+
         for i in range(0, len(documents), batch_size):
             batch = documents[i:i + batch_size]
-            
+
             # Tokenize
             encoded = self._bert_tokenizer(
                 batch,
@@ -188,23 +200,31 @@ class OutlierDetector:
                 max_length=256,
                 return_tensors="pt"
             )
-            
+
             input_ids = encoded["input_ids"].to(self._device)
             attention_mask = encoded["attention_mask"].to(self._device)
-            
+
             # Forward pass
             outputs = self._bert_model(input_ids=input_ids, attention_mask=attention_mask)
-            
+
             # Mean pooling over tokens
             token_embeddings = outputs.last_hidden_state
             mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
             sum_embeddings = torch.sum(token_embeddings * mask_expanded, dim=1)
             sum_mask = torch.clamp(mask_expanded.sum(dim=1), min=1e-9)
             mean_embeddings = sum_embeddings / sum_mask
-            
+
             all_embeddings.append(mean_embeddings.cpu().numpy())
-        
+
         return np.vstack(all_embeddings)
+
+    def _get_indo_e5_embeddings(self, documents: List[str]) -> np.ndarray:
+        """Get Indo-E5 embeddings using SentenceEmbedder."""
+        if self._sentence_embedder is None:
+            from src.models.embeddings import SentenceEmbedder
+            print("[OutlierDetector] Loading Indo-E5 embeddings...")
+            self._sentence_embedder = SentenceEmbedder("indo-e5-small")
+        return self._sentence_embedder.encode(documents, normalize=True)
     
     def _get_embeddings(self, documents: List[str]) -> np.ndarray:
         """Get embeddings based on configured method."""
@@ -212,6 +232,8 @@ class OutlierDetector:
             return self._get_tfidf_embeddings(documents)
         elif self.method == EmbeddingMethod.INDOBERT:
             return self._get_bert_embeddings(documents)
+        elif self.method == EmbeddingMethod.INDO_E5:
+            return self._get_indo_e5_embeddings(documents)
         else:
             raise ValueError(f"Unknown method: {self.method}")
     
@@ -232,8 +254,9 @@ class OutlierDetector:
         
         # Validation
         if n_docs < self.min_documents:
-            print(f"[OutlierDetector] Warning: Only {n_docs} documents. Need {self.min_documents}+ for analysis.")
+            print(f"[OutlierDetector] Info: {n_docs} doc(s) - Skipping outlier detection (requires {self.min_documents}+)")
             # Return all as valid
+
             results = [
                 OutlierResult(
                     doc_index=i,

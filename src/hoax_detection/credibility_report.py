@@ -213,7 +213,7 @@ class CredibilityAnalyzer:
         print("[CredibilityAnalyzer] Initializing outlier detector...")
         self.outlier_detector = OutlierDetector(
             threshold_z=outlier_threshold_z,
-            method="indobert"  # Use semantic embeddings instead of tfidf
+            method="indobert"  # Use IndoBERT semantic embeddings
         )
         
         print("[CredibilityAnalyzer] Ready.")
@@ -458,6 +458,14 @@ class CredibilityAnalyzer:
         approved_docs = report.get_approved_texts(documents)
         
         return approved_docs, report
+
+    def unload(self):
+        """Free up resources (VRAM)."""
+        if hasattr(self, 'hoax_classifier'):
+            self.hoax_classifier.unload()
+        # Outlier detector is CPU-based but good to clear
+        if hasattr(self, 'outlier_detector'):
+            del self.outlier_detector
 
 
 # Factory function

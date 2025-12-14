@@ -1182,8 +1182,20 @@ def health():
     return jsonify({'status': 'ok'})
 
 
-def run_server(host: str = '0.0.0.0', port: int = 5000, debug: bool = False):
-    """Run the Flask server."""
+def run_server(host: str = None, port: int = 5000, debug: bool = False):
+    """
+    Run the Flask server.
+    
+    Args:
+        host: Host to bind to. Defaults to BIND_HOST env var or '127.0.0.1' (localhost only).
+              Set BIND_HOST=0.0.0.0 for Docker/LAN access.
+        port: Port to bind to.
+        debug: Enable debug mode.
+    """
+    import os
+    if host is None:
+        host = os.environ.get('BIND_HOST', '127.0.0.1')
+    
     print(f"\n{'='*60}")
     print("TDSM Web Playground")
     print(f"{'='*60}")

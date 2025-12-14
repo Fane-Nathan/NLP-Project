@@ -20,6 +20,7 @@ Types of Hallucinations Detected:
 """
 
 import re
+import logging
 from enum import Enum
 from typing import List, Dict, Optional, Tuple, Set
 from dataclasses import dataclass, field
@@ -383,8 +384,8 @@ class FactVerifier:
                         f"Significant date discrepancy ({diff} days)",
                         0.2
                     )
-        except:
-            pass
+        except (ValueError, TypeError, AttributeError) as e:
+            logging.debug(f"Date parsing failed in temporal verification: {e}")
         
         return VerificationStatus.UNVERIFIED, "Cannot parse dates", 0.3
     

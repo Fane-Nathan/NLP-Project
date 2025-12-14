@@ -1,13 +1,23 @@
-"""
-Gemini API Summarizer for Indonesian Multi-Document Summarization
+"""LLM Summarizer for Indonesian Multi-Document Summarization
 
-Uses the new google-genai SDK (2024+) with Gemini 2.5 Flash Lite.
+Supports multiple LLM providers:
+- Groq (primary, fast, generous free tier)
+- Gemini (fallback)
 """
 
 import os
 from typing import List, Optional, Union
 from dataclasses import dataclass
 
+# Groq SDK (primary)
+try:
+    from groq import Groq
+    GROQ_AVAILABLE = True
+except ImportError:
+    GROQ_AVAILABLE = False
+    Groq = None
+
+# Gemini SDK (fallback)
 try:
     from google import genai
     from google.genai import types
@@ -37,51 +47,87 @@ class SummaryResult:
 
 class GeminiSummarizer:
     """
-    Gemini-based abstractive summarizer for Indonesian news.
-    Uses Gemini 2.5 Flash Lite for optimal speed and cost.
+    Multi-LLM abstractive summarizer for Indonesian news.
+    Supports Groq (primary) and Gemini (fallback) with automatic switching.
     """
     
-    DEFAULT_MODEL = "gemini-2.5-flash-lite"
+    # Model defaults
+    GROQ_MODEL = "llama-3.3-70b-versatile"  # Fast and capable
+    GEMINI_MODEL = "gemini-2.5-flash-lite"
     
-    SYSTEM_PROMPT = """You are a professional executive assistant.
-    
-    PERSONA:
-    - Tone: Natural, fluid, and engaging.
-    - Language: ALWAYS speak in ENGLISH.
-    - Style: Narrative storytelling. Use paragraphs, not bullet points.
-    - Constraint: No exaggeration (e.g., avoid "Yikes", "Deets", "Buzz"). Be grounded but conversational.
+    SYSTEM_PROMPT = """You're a sharp, well-informed friend who's really good at spotting BS in the news.
 
-    GUIDELINES:
-    1. Accuracy: Stick to the facts.
-    2. Flow: Connect ideas logically like a human telling a story.
-    3. Format: Use clean paragraphs.
+    YOUR VIBE:
+    - Talk naturally, like you're chatting with a friend - no corporate speak, no rigid structures
+    - Be direct and honest. If something looks sketchy, say so. If it looks legit, say that too.
+    - Keep it brief but insightful - quality over quantity
+    - Always speak in English
+    
+    CRITICAL - VARY YOUR OPENINGS:
+    - NEVER start with "So" or "So the article" - this is banned
+    - Mix it up: sometimes start with the topic, sometimes with your take, sometimes with a key fact
+    - Examples of good varied openings: "This piece covers...", "Looks like...", "Here's the deal with...", "The article dives into...", "Pretty interesting one..."
+    
+    WHAT TO AVOID:
+    - Bullet points, numbered lists, headers
+    - Starting with "So" (seriously, don't do it)
+    - Formal transitions like "Furthermore" or "In conclusion"
+    - Sounding like a report or a template
     """
 
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = None
+        groq_api_key: Optional[str] = None,
+        provider: str = "auto"  # "auto", "groq", or "gemini"
     ):
         """
-        Initialize Gemini summarizer.
+        Initialize LLM summarizer.
         
         Args:
-            api_key: Gemini API key. Uses GEMINI_API_KEY env var if not provided.
-            model: Model name (default: gemini-2.5-flash-lite).
+            api_key: Gemini API key (uses GEMINI_API_KEY env var if not provided).
+            groq_api_key: Groq API key (uses GROQ_API_KEY env var if not provided).
+            provider: "auto" (try Groq first), "groq", or "gemini".
         """
-        if not GEMINI_AVAILABLE:
-            raise ImportError("google-genai not installed. Run: pip install google-genai")
+        self.provider = provider
+        self.groq_client = None
+        self.gemini_client = None
+        self.active_provider = None
         
-        # Set API key in environment if provided explicitly
-        if api_key:
-            os.environ["GEMINI_API_KEY"] = api_key
+        # Initialize Groq if available
+        groq_key = groq_api_key or os.environ.get("GROQ_API_KEY")
+        if GROQ_AVAILABLE and groq_key:
+            self.groq_client = Groq(api_key=groq_key)
+            self.active_provider = "groq"
+            print(f"[GeminiSummarizer] Groq initialized")
+            print(f"  Model: {self.GROQ_MODEL}")
         
-        # Initialize client (reads GEMINI_API_KEY from environment)
-        self.client = genai.Client()
-        self.model_name = model or self.DEFAULT_MODEL
+        # Initialize Gemini as fallback
+        if GEMINI_AVAILABLE:
+            if api_key:
+                os.environ["GEMINI_API_KEY"] = api_key
+            if os.environ.get("GEMINI_API_KEY"):
+                self.gemini_client = genai.Client()
+                if not self.active_provider:
+                    self.active_provider = "gemini"
+                print(f"[GeminiSummarizer] Gemini initialized (fallback)")
+                print(f"  Model: {self.GEMINI_MODEL}")
         
-        print(f"[GeminiSummarizer] Initialized")
-        print(f"  Model: {self.model_name}")
+        # Force provider if specified
+        if provider == "groq" and self.groq_client:
+            self.active_provider = "groq"
+        elif provider == "gemini" and self.gemini_client:
+            self.active_provider = "gemini"
+        
+        if not self.active_provider:
+            raise ValueError("No LLM provider available. Set GROQ_API_KEY or GEMINI_API_KEY.")
+        
+        print(f"[GeminiSummarizer] Active provider: {self.active_provider}")
+    
+    @property
+    def model_name(self):
+        """Return current model name."""
+        return self.GROQ_MODEL if self.active_provider == "groq" else self.GEMINI_MODEL
     
     def _build_prompt(self, documents: Union[List[str], List[dict]], query: Optional[str] = None, style: str = "default") -> str:
         """Build the prompt for Gemini."""
@@ -125,6 +171,69 @@ SOURCE DOCUMENTS ({len(documents)} docs):
 
 SUMMARY:"""
         return prompt
+    
+    def _call_llm(self, prompt: str, system_prompt: str = None) -> str:
+        """
+        Call the active LLM provider with automatic fallback.
+        
+        Args:
+            prompt: The user prompt.
+            system_prompt: Optional system prompt (used by Groq).
+            
+        Returns:
+            Generated text response.
+        """
+        providers_to_try = []
+        
+        # Build provider order
+        if self.active_provider == "groq" and self.groq_client:
+            providers_to_try.append("groq")
+        if self.gemini_client:
+            providers_to_try.append("gemini")
+        if self.active_provider == "gemini" and self.groq_client:
+            providers_to_try.append("groq")  # Try Groq as fallback for Gemini
+        
+        last_error = None
+        
+        for provider in providers_to_try:
+            try:
+                if provider == "groq":
+                    messages = []
+                    if system_prompt:
+                        messages.append({"role": "system", "content": system_prompt})
+                    messages.append({"role": "user", "content": prompt})
+                    
+                    response = self.groq_client.chat.completions.create(
+                        model=self.GROQ_MODEL,
+                        messages=messages,
+                        temperature=0.7,
+                        max_tokens=2048
+                    )
+                    return response.choices[0].message.content.strip()
+                    
+                elif provider == "gemini":
+                    full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
+                    response = self.gemini_client.models.generate_content(
+                        model=self.GEMINI_MODEL,
+                        contents=full_prompt
+                    )
+                    return response.text.strip()
+                    
+            except Exception as e:
+                error_str = str(e)
+                last_error = e
+                print(f"[GeminiSummarizer] {provider} error: {error_str[:100]}...")
+                
+                # Check for rate limit and try fallback
+                if "429" in error_str or "rate" in error_str.lower() or "quota" in error_str.lower():
+                    print(f"[GeminiSummarizer] Rate limited on {provider}, trying fallback...")
+                    continue
+                else:
+                    # Non-rate-limit error, still try fallback
+                    continue
+        
+        # All providers failed
+        raise last_error or Exception("All LLM providers failed")
 
     def summarize(
         self,
@@ -162,26 +271,14 @@ SUMMARY:"""
         prompt = self._build_prompt(documents, query, style)
 
         try:
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt
-            )
-            
-            summary = response.text.strip()
-            
-            # Get token usage if available
-            input_tokens = 0
-            output_tokens = 0
-            if hasattr(response, 'usage_metadata'):
-                input_tokens = getattr(response.usage_metadata, 'prompt_token_count', 0)
-                output_tokens = getattr(response.usage_metadata, 'candidates_token_count', 0)
+            summary = self._call_llm(prompt)
             
             return SummaryResult(
                 summary=summary,
                 model=self.model_name,
                 input_docs=len(documents),
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
+                input_tokens=0,
+                output_tokens=0,
                 style=style
             )
             
@@ -214,109 +311,167 @@ TASK:
 Answer in ENGLISH, max 3 paragraphs."""
 
         try:
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt
-            )
-            return response.text.strip()
+            return self._call_llm(prompt)
         except Exception as e:
             return f"Cannot generate explanation: {str(e)}"
-    
+
+    def extract_verification_queries(self, content: str, title: str = "") -> list:
+        """
+        Extract search queries for fact-checking an article.
+
+        Args:
+            content: Article content.
+            title: Article title.
+
+        Returns:
+            List of 3 search queries for verification.
+        """
+        prompt = f"""Extract 3 specific search queries to fact-check this article.
+
+TITLE: {title}
+CONTENT: {content[:3000]}
+
+Generate 3 queries that would help verify the key claims:
+1. A query about the main subject/entity (company, person, product)
+2. A query about a specific claim or statistic mentioned
+3. A query to find official sources or announcements
+
+Return ONLY the 3 queries, one per line, no numbering or explanation.
+Keep each query concise (5-10 words max).
+
+Queries:"""
+
+        try:
+            result = self._call_llm(prompt)
+            queries = [q.strip() for q in result.strip().split('\n') if q.strip()]
+            # Limit to 3 queries, fallback to title if empty
+            queries = queries[:3] if queries else [title if title else "news verification"]
+            return queries
+        except Exception as e:
+            print(f"[QueryGen] Error: {e}")
+            return [title if title else "news verification"]
+
     def verify_article(
-        self, 
+        self,
         title: str,
         content: str,
         hoax_probability: float = None,
-        search_results: list = None
+        search_results: list = None,
+        source_trusted: bool = None,
+        source_name: str = None,
+        is_outlier: bool = False,
+        outlier_similarity: float = 1.0
     ) -> dict:
         """
         Verify article trustworthiness using LLM analysis.
-        
+
         Args:
             title: Article title.
             content: Article content.
             hoax_probability: Hoax detection model probability (0-1).
             search_results: List of search result dicts for corroboration.
-            
+            source_trusted: Whether the source domain is trusted (None=unknown/text input).
+            source_name: Name of the source domain.
+            is_outlier: Whether article is semantically distant from search results.
+            outlier_similarity: Cosine similarity to search result centroid (0-1).
+
         Returns:
             Dict with verdict, summary, reasoning, and confidence.
         """
+        # Build source credibility context
+        source_context = ""
+        if source_trusted is not None:
+            if source_trusted:
+                source_context = f"\n\nSOURCE CREDIBILITY: TRUSTED - {source_name} (established news outlet)"
+            else:
+                source_context = f"\n\nSOURCE CREDIBILITY: UNKNOWN/UNVERIFIED - {source_name} (not a recognized news source - BE SKEPTICAL)"
+        elif source_name:
+            source_context = f"\n\nSOURCE CREDIBILITY: UNKNOWN - {source_name} (could not verify source reputation)"
+
+        # Build outlier context
+        outlier_context = ""
+        if is_outlier:
+            outlier_context = f"\n\nOUTLIER DETECTION: WARNING - This article's content is SIGNIFICANTLY DIFFERENT from mainstream coverage (similarity: {outlier_similarity:.1%}). This may indicate fabricated or misleading content."
+        elif outlier_similarity < 0.8:
+            outlier_context = f"\n\nOUTLIER DETECTION: CAUTION - This article differs somewhat from mainstream coverage (similarity: {outlier_similarity:.1%})."
+
         # Build context from search results
         search_context = ""
         if search_results:
             search_context = "\n\nRELATED SOURCES FOUND:\n"
             for i, r in enumerate(search_results[:5]):
                 search_context += f"{i+1}. {r.get('title', 'No title')} - {r.get('source', '')}\n"
-        
+
         # Build hoax detection context
         hoax_context = ""
         if hoax_probability is not None:
             hoax_label = "HOAX" if hoax_probability >= 0.5 else "VALID"
             hoax_context = f"\n\nAI HOAX DETECTION: {hoax_label} ({hoax_probability:.1%} hoax probability)"
-        
-        prompt = f"""You are a professional fact-checker and news analyst.
 
-TASK: Analyze the following news article and provide a trustworthiness verdict.
+        prompt = f"""Hey, I need you to check out this news article and tell me what you think.
+
+Just talk to me like a friend - tell me what the article is about, whether you think it's trustworthy, and why. Be casual and natural about it.
+
+CRITICAL SOURCE EVALUATION RULES:
+- If source is UNKNOWN/UNVERIFIED: Default to UNCERTAIN unless claims are corroborated by trusted sources
+- If article is based on "leaks", "rumors", "tipsters", or "reports suggest": Be extra skeptical
+- If article makes specific claims about future products/events without official confirmation: Lean toward UNCERTAIN
+- Only mark as TRUSTABLE if: source is trusted OR claims are verified by multiple trusted sources
+
+IMPORTANT - VARY YOUR OPENING:
+- Do NOT start with "So" or "So the article"
+- Do NOT start with "Honestly" every time
+- Mix it up! Start with the main topic, a surprising fact, or your direct reaction.
+- Examples: "This piece covers...", "I checked out this story and...", "Here's what I found about...", "The article claims that...", "Looks like this story is..."
 
 ARTICLE TITLE: {title}
+{source_context}
+{outlier_context}
 
-ARTICLE CONTENT (first 2000 chars):
-"{content[:2000]}"
+ARTICLE CONTENT:
+"{content[:12000]}"
 {hoax_context}
 {search_context}
 
-ANALYSIS CRITERIA:
-1. Source credibility signals (official sources, named experts, specific data)
-2. Language patterns (sensationalism, emotional manipulation, clickbait)
-3. Factual claims (verifiable data, dates, names)
-4. Consistency (internal logic, contradictions)
-5. Red flags (unverified claims, conspiracy language, pressure tactics)
+Give me your honest take in 2-3 natural paragraphs. Don't use templates or structured formats - just talk naturally. Make sure to mention the source credibility in your analysis.
 
-RESPOND IN THIS EXACT JSON FORMAT:
-{{
-    "verdict": "[TRUSTABLE / NOT TRUSTABLE / UNCERTAIN]",
-    "confidence": [0.0-1.0],
-    "summary": "[2-3 sentence summary of the article]",
-    "reasoning": "[2-3 sentences explaining your verdict]",
-    "red_flags": ["list of red flags if any"],
-    "credibility_signals": ["list of positive credibility signals if any"]
-}}
+At the very end, on a new line, just write one word for your overall verdict: TRUSTABLE, UNCERTAIN, or NOT TRUSTABLE
 
-IMPORTANT: 
-- TRUSTABLE = Good credibility signals, verifiable facts, no major red flags
-- NOT TRUSTABLE = Multiple red flags, sensationalist language, unverifiable claims
-- UNCERTAIN = Mixed signals, needs more verification, insufficient information
-
-JSON RESPONSE:"""
+Go ahead:"""
 
         try:
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt
-            )
+            result_text = self._call_llm(prompt)
             
-            result_text = response.text.strip()
-            
-            # Parse JSON response
-            import json
+            # Extract verdict from natural text (look for TRUSTABLE/UNCERTAIN/NOT TRUSTABLE at end)
             import re
             
-            # Extract JSON from response (handle markdown code blocks)
-            json_match = re.search(r'\{[\s\S]*\}', result_text)
-            if json_match:
-                try:
-                    result = json.loads(json_match.group())
-                    print(f"[LLM Verifier] Verdict: {result.get('verdict', 'UNKNOWN')}")
-                    return result
-                except json.JSONDecodeError:
-                    pass
+            # Clean up the text
+            lines = result_text.strip().split('\n')
             
-            # Fallback: return raw text in structured format
+            # Try to find verdict in last few lines
+            verdict = "UNCERTAIN"
+            for line in reversed(lines[-5:]):
+                line_upper = line.strip().upper()
+                if "NOT TRUSTABLE" in line_upper:
+                    verdict = "NOT TRUSTABLE"
+                    break
+                elif "TRUSTABLE" in line_upper and "NOT" not in line_upper:
+                    verdict = "TRUSTABLE"
+                    break
+                elif "UNCERTAIN" in line_upper:
+                    verdict = "UNCERTAIN"
+                    break
+            
+            # Get the conversational analysis (everything except the verdict line)
+            analysis = '\n'.join(lines[:-1]).strip() if len(lines) > 1 else result_text
+            
+            print(f"[LLM Verifier] Verdict: {verdict}")
+            
             return {
-                "verdict": "UNCERTAIN",
-                "confidence": 0.5,
-                "summary": result_text[:200],
-                "reasoning": "Could not parse structured response",
+                "verdict": verdict,
+                "confidence": 0.8 if verdict == "TRUSTABLE" else 0.5,
+                "summary": analysis,  # The natural conversational text
+                "reasoning": analysis,  # Same - it's all in the natural text now
                 "red_flags": [],
                 "credibility_signals": []
             }
@@ -372,6 +527,39 @@ JSON RESPONSE:"""
         except Exception as e:
             print(f"[GeminiSummarizer] Vision Error: {e}")
             return None
+
+    def generate_search_query(self, text: str) -> str:
+        """
+        Generate a targeted search query to verify claims in the text.
+        
+        Args:
+            text: The input text containing claims.
+            
+        Returns:
+            A optimized search query string.
+        """
+        prompt = f"""You are an expert fact-checker.
+        
+TASK: Formulate a single, powerful search query to verify the main claim in the following text.
+
+TEXT:
+"{text[:1000]}"
+
+GUIDELINES:
+1. Identify the core factual claim (who, what, when, where).
+2. Remove specific numbers if they might be slightly off (use keywords instead).
+3. Include key entities and action verbs.
+4. Return ONLY the query string. No quotes, no explanations.
+
+QUERY:"""
+
+        try:
+            result = self._call_llm(prompt)
+            return result.strip().strip('"')
+        except Exception as e:
+            print(f"[GeminiSummarizer] Query Generation Error: {e}")
+            # Fallback to simple keyword extraction or first sentence
+            return text.split('\n')[0][:100]
 
     def describe_image(
         self, 

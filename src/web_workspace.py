@@ -4,6 +4,7 @@ Complete pipeline: URL Fetch → Trust Layer → Web Search → KG → Verdict �
 """
 
 import os
+import re
 import sys
 
 # Add project root to Python path
@@ -11,15 +12,19 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-import json
-import re
-import requests
-from flask import Flask, render_template_string, request, jsonify
+# Third-party imports
 from typing import Optional, List, Dict, Tuple
-from datetime import datetime
-from urllib.parse import urlparse
 
-app = Flask(__name__)
+import requests
+from flask import Flask, render_template, request, jsonify
+
+# Configure Flask with templates folder
+TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), 'templates')
+app = Flask(__name__, template_folder=TEMPLATE_DIR)
+
+# Ensure proper UTF-8 encoding for JSON and templates (fixes emoji display)
+app.config['JSON_AS_ASCII'] = False
+app.config['JSONIFY_MIMETYPE'] = 'application/json; charset=utf-8'
 
 # Global TTS instance (Kokoro)
 tts_voice = None
@@ -30,1294 +35,96 @@ def init_tts():
     global tts_voice
     try:
         from src.voice_kokoro import EchoVoice
-        tts_voice = EchoVoice()
+        tts_voice = EchoVoice(server_mode=True)
         print("✓ Kokoro TTS initialized")
         return True
     except Exception as e:
         print(f"[Warning] Kokoro TTS not available: {e}")
         return False
 
-# HTML Template - Full Workspace with TTS
-HTML_TEMPLATE = '''
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TDSM // News Verification Workspace</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        :root {
-            --bg: #0d1117;
-            --bg-secondary: #161b22;
-            --bg-tertiary: #21262d;
-            --fg: #c9d1d9;
-            --fg-muted: #8b949e;
-            --accent: #00ff88;
-            --accent-dim: #00cc6a;
-            --border: #30363d;
-            --error: #f85149;
-            --error-bg: rgba(248, 81, 73, 0.1);
-            --warn: #d29922;
-            --warn-bg: rgba(210, 153, 34, 0.1);
-            --success: #3fb950;
-            --success-bg: rgba(63, 185, 80, 0.1);
-            --info: #58a6ff;
-            --info-bg: rgba(88, 166, 255, 0.1);
-        }
-
-        body {
-            font-family: "JetBrains Mono", monospace;
-            background: var(--bg);
-            color: var(--fg);
-            min-height: 100vh;
-            line-height: 1.6;
-        }
-
-        .workspace {
-            display: grid;
-            grid-template-columns: 1fr 380px;
-            grid-template-rows: auto 1fr;
-            min-height: 100vh;
-            gap: 0;
-        }
-
-        @media (max-width: 1100px) {
-            .workspace { grid-template-columns: 1fr; }
-            .sidebar { max-height: 50vh; }
-        }
-
-        /* Header */
-        .header {
-            grid-column: 1 / -1;
-            background: var(--bg-secondary);
-            border-bottom: 1px solid var(--border);
-            padding: 1rem 1.5rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .logo {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-        }
-
-        .logo-icon {
-            width: 36px;
-            height: 36px;
-            border: 2px solid var(--accent);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 600;
-            color: var(--accent);
-            font-size: 0.7rem;
-        }
-
-        .logo h1 {
-            font-size: 1rem;
-            font-weight: 500;
-        }
-
-        .logo h1 span { color: var(--accent); }
-
-        .header-controls {
-            display: flex;
-            gap: 0.75rem;
-            align-items: center;
-        }
-
-        /* TTS Controls */
-        .tts-controls {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.4rem 0.75rem;
-            background: var(--bg-tertiary);
-            border-radius: 6px;
-            border: 1px solid var(--border);
-        }
-
-        .tts-controls label {
-            font-size: 0.7rem;
-            color: var(--fg-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .tts-toggle {
-            width: 40px;
-            height: 22px;
-            background: var(--border);
-            border-radius: 11px;
-            position: relative;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .tts-toggle.active {
-            background: var(--accent);
-        }
-
-        .tts-toggle::after {
-            content: '';
-            position: absolute;
-            width: 18px;
-            height: 18px;
-            background: var(--fg);
-            border-radius: 50%;
-            top: 2px;
-            left: 2px;
-            transition: transform 0.2s;
-        }
-
-        .tts-toggle.active::after {
-            transform: translateX(18px);
-        }
-
-        .voice-select {
-            background: var(--bg);
-            border: 1px solid var(--border);
-            color: var(--fg);
-            font-family: inherit;
-            font-size: 0.75rem;
-            padding: 0.3rem 0.5rem;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-
-        .tts-status {
-            font-size: 0.6rem;
-            padding: 0.2rem 0.4rem;
-            border-radius: 3px;
-            background: var(--success-bg);
-            color: var(--success);
-        }
-
-        .tts-status.offline {
-            background: var(--error-bg);
-            color: var(--error);
-        }
-
-        /* Main Area */
-        .main {
-            padding: 1.5rem;
-            overflow-y: auto;
-        }
-
-        /* Input Section */
-        .input-section {
-            margin-bottom: 1.5rem;
-        }
-
-        .input-tabs {
-            display: flex;
-            gap: 0;
-            margin-bottom: 0;
-        }
-
-        .input-tab {
-            padding: 0.6rem 1.2rem;
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border);
-            border-bottom: none;
-            color: var(--fg-muted);
-            font-size: 0.75rem;
-            cursor: pointer;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            transition: all 0.2s;
-        }
-
-        .input-tab:first-child { border-radius: 6px 0 0 0; }
-        .input-tab:last-child { border-radius: 0 6px 0 0; }
-
-        .input-tab.active {
-            background: var(--bg-secondary);
-            color: var(--accent);
-            border-color: var(--accent);
-            border-bottom: 1px solid var(--bg-secondary);
-            margin-bottom: -1px;
-            z-index: 1;
-        }
-
-        .input-panel {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 0 6px 6px 6px;
-            padding: 1rem;
-            display: none;
-        }
-
-        .input-panel.active { display: block; }
-
-        .url-input-group {
-            display: flex;
-            gap: 0.5rem;
-        }
-
-        input[type="url"], input[type="text"] {
-            flex: 1;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            color: var(--fg);
-            font-family: inherit;
-            font-size: 0.85rem;
-            padding: 0.75rem 1rem;
-            border-radius: 6px;
-        }
-
-        input:focus {
-            outline: none;
-            border-color: var(--accent);
-        }
-
-        textarea {
-            width: 100%;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            color: var(--fg);
-            font-family: inherit;
-            font-size: 0.85rem;
-            padding: 1rem;
-            border-radius: 6px;
-            resize: vertical;
-            min-height: 150px;
-        }
-
-        textarea:focus {
-            outline: none;
-            border-color: var(--accent);
-        }
-
-        .btn {
-            background: var(--accent);
-            border: none;
-            color: var(--bg);
-            font-family: inherit;
-            font-size: 0.8rem;
-            font-weight: 500;
-            padding: 0.75rem 1.5rem;
-            cursor: pointer;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            border-radius: 6px;
-            transition: all 0.2s;
-            white-space: nowrap;
-        }
-
-        .btn:hover {
-            background: var(--accent-dim);
-            transform: translateY(-1px);
-        }
-
-        .btn:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .btn-secondary {
-            background: var(--bg-tertiary);
-            color: var(--fg);
-            border: 1px solid var(--border);
-        }
-
-        .btn-secondary:hover {
-            background: var(--border);
-        }
-
-        .btn-icon {
-            padding: 0.75rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        /* Pipeline Status */
-        .pipeline-status {
-            display: flex;
-            gap: 0.25rem;
-            align-items: center;
-            flex-wrap: wrap;
-            padding: 0.75rem 1rem;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            margin-bottom: 1.5rem;
-        }
-
-        .pipeline-step {
-            font-size: 0.6rem;
-            padding: 0.35rem 0.6rem;
-            border: 1px solid var(--border);
-            color: var(--fg-muted);
-            border-radius: 4px;
-            transition: all 0.2s;
-        }
-
-        .pipeline-step.active {
-            border-color: var(--warn);
-            color: var(--warn);
-            background: var(--warn-bg);
-            animation: pulse 1s infinite;
-        }
-
-        .pipeline-step.done {
-            background: var(--accent);
-            color: var(--bg);
-            border-color: var(--accent);
-        }
-
-        .pipeline-step.error {
-            background: var(--error-bg);
-            color: var(--error);
-            border-color: var(--error);
-        }
-
-        .pipeline-step.pending {
-            opacity: 0.4;
-            border-style: dashed;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.6; }
-        }
-
-        .pipeline-arrow {
-            color: var(--border);
-            font-size: 0.7rem;
-        }
-
-        /* Verdict Card */
-        .verdict-card {
-            background: var(--bg-secondary);
-            border: 2px solid var(--border);
-            border-radius: 8px;
-            overflow: hidden;
-            margin-bottom: 1.5rem;
-        }
-
-        .verdict-header {
-            padding: 1rem 1.25rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: var(--bg-tertiary);
-            border-bottom: 1px solid var(--border);
-        }
-
-        .verdict-label {
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            color: var(--fg-muted);
-        }
-
-        .verdict-badge {
-            font-size: 0.75rem;
-            font-weight: 600;
-            padding: 0.3rem 0.75rem;
-            border-radius: 4px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .verdict-badge.true {
-            background: var(--success-bg);
-            color: var(--success);
-            border: 1px solid var(--success);
-        }
-
-        .verdict-badge.false {
-            background: var(--error-bg);
-            color: var(--error);
-            border: 1px solid var(--error);
-        }
-
-        .verdict-badge.uncertain {
-            background: var(--warn-bg);
-            color: var(--warn);
-            border: 1px solid var(--warn);
-        }
-
-        .verdict-badge.processing {
-            background: var(--info-bg);
-            color: var(--info);
-            border: 1px solid var(--info);
-        }
-
-        .verdict-content {
-            padding: 1.25rem;
-        }
-
-        .verdict-summary {
-            font-size: 0.9rem;
-            line-height: 1.7;
-            margin-bottom: 1rem;
-        }
-
-        .verdict-confidence {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            padding-top: 1rem;
-            border-top: 1px solid var(--border);
-        }
-
-        .confidence-bar {
-            flex: 1;
-            height: 6px;
-            background: var(--border);
-            border-radius: 3px;
-            overflow: hidden;
-        }
-
-        .confidence-fill {
-            height: 100%;
-            background: var(--accent);
-            transition: width 0.5s;
-        }
-
-        .confidence-label {
-            font-size: 0.7rem;
-            color: var(--fg-muted);
-            white-space: nowrap;
-        }
-
-        /* Evidence Section */
-        .evidence-section {
-            margin-bottom: 1.5rem;
-        }
-
-        .evidence-header {
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            color: var(--fg-muted);
-            margin-bottom: 0.75rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .evidence-list {
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-
-        .evidence-item {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 0.75rem 1rem;
-            display: flex;
-            gap: 0.75rem;
-            align-items: flex-start;
-        }
-
-        .evidence-icon {
-            font-size: 1rem;
-            line-height: 1;
-        }
-
-        .evidence-content {
-            flex: 1;
-            min-width: 0;
-        }
-
-        .evidence-title {
-            font-size: 0.8rem;
-            color: var(--fg);
-            margin-bottom: 0.25rem;
-            display: -webkit-box;
-            -webkit-line-clamp: 1;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-        }
-
-        .evidence-source {
-            font-size: 0.7rem;
-            color: var(--fg-muted);
-        }
-
-        .evidence-source a {
-            color: var(--info);
-            text-decoration: none;
-        }
-
-        .evidence-source a:hover {
-            text-decoration: underline;
-        }
-
-        /* Sidebar */
-        .sidebar {
-            background: var(--bg-secondary);
-            border-left: 1px solid var(--border);
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .sidebar-section {
-            border-bottom: 1px solid var(--border);
-        }
-
-        .sidebar-header {
-            padding: 0.75rem 1rem;
-            background: var(--bg-tertiary);
-            font-size: 0.65rem;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            color: var(--fg-muted);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            position: sticky;
-            top: 0;
-            z-index: 5;
-        }
-
-        .sidebar-content {
-            padding: 0;
-        }
-
-        /* Document Cards */
-        .doc-card {
-            border-bottom: 1px solid var(--border);
-            padding: 0.75rem 1rem;
-            transition: background 0.2s;
-        }
-
-        .doc-card:hover { background: var(--bg-tertiary); }
-        .doc-card:last-child { border-bottom: none; }
-
-        .doc-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.35rem;
-        }
-
-        .doc-index {
-            font-size: 0.65rem;
-            color: var(--fg-muted);
-        }
-
-        .doc-badge {
-            font-size: 0.55rem;
-            padding: 0.15rem 0.4rem;
-            border-radius: 3px;
-            font-weight: 500;
-        }
-
-        .doc-badge.valid { background: var(--success-bg); color: var(--success); }
-        .doc-badge.hoax { background: var(--error-bg); color: var(--error); }
-        .doc-badge.outlier { background: var(--warn-bg); color: var(--warn); }
-
-        .doc-text {
-            font-size: 0.7rem;
-            color: var(--fg-muted);
-            line-height: 1.4;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-        }
-
-        .doc-text.filtered {
-            text-decoration: line-through;
-            opacity: 0.5;
-        }
-
-        .doc-scores {
-            display: flex;
-            gap: 0.75rem;
-            margin-top: 0.35rem;
-            font-size: 0.6rem;
-        }
-
-        .doc-score-value.good { color: var(--success); }
-        .doc-score-value.bad { color: var(--error); }
-        .doc-score-value.warn { color: var(--warn); }
-
-        /* Stats */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 0.5rem;
-            padding: 0.75rem 1rem;
-            background: var(--bg-tertiary);
-        }
-
-        .stat-item { text-align: center; }
-
-        .stat-value {
-            font-size: 1.1rem;
-            font-weight: 600;
-            color: var(--fg);
-        }
-
-        .stat-value.accent { color: var(--accent); }
-
-        .stat-label {
-            font-size: 0.55rem;
-            color: var(--fg-muted);
-            text-transform: uppercase;
-        }
-
-        /* Empty State */
-        .empty-state {
-            padding: 2rem 1rem;
-            text-align: center;
-            color: var(--fg-muted);
-            font-size: 0.75rem;
-        }
-
-        .empty-state-icon {
-            font-size: 1.5rem;
-            margin-bottom: 0.5rem;
-            opacity: 0.3;
-        }
-
-        /* Bookmarklet Section */
-        .bookmarklet-section {
-            padding: 1rem;
-            background: var(--bg-tertiary);
-            border-top: 1px solid var(--border);
-            margin-top: auto;
-        }
-
-        .bookmarklet-title {
-            font-size: 0.65rem;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            color: var(--fg-muted);
-            margin-bottom: 0.5rem;
-        }
-
-        .bookmarklet-link {
-            display: block;
-            background: var(--info-bg);
-            color: var(--info);
-            text-decoration: none;
-            padding: 0.5rem 0.75rem;
-            border-radius: 4px;
-            font-size: 0.7rem;
-            text-align: center;
-            border: 1px dashed var(--info);
-        }
-
-        .bookmarklet-hint {
-            font-size: 0.6rem;
-            color: var(--fg-muted);
-            margin-top: 0.5rem;
-            text-align: center;
-        }
-
-        /* TTS Speaking Indicator */
-        .speaking-indicator {
-            display: none;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.5rem 0.75rem;
-            background: var(--accent);
-            color: var(--bg);
-            font-size: 0.7rem;
-            border-radius: 4px;
-            position: fixed;
-            bottom: 1rem;
-            right: 1rem;
-            z-index: 100;
-        }
-
-        .speaking-indicator.active { display: flex; }
-
-        .speaking-waves {
-            display: flex;
-            gap: 2px;
-            align-items: center;
-        }
-
-        .speaking-wave {
-            width: 3px;
-            background: var(--bg);
-            border-radius: 2px;
-            animation: wave 0.5s ease-in-out infinite;
-        }
-
-        .speaking-wave:nth-child(1) { height: 8px; animation-delay: 0s; }
-        .speaking-wave:nth-child(2) { height: 12px; animation-delay: 0.1s; }
-        .speaking-wave:nth-child(3) { height: 16px; animation-delay: 0.2s; }
-        .speaking-wave:nth-child(4) { height: 12px; animation-delay: 0.3s; }
-        .speaking-wave:nth-child(5) { height: 8px; animation-delay: 0.4s; }
-
-        @keyframes wave {
-            0%, 100% { transform: scaleY(1); }
-            50% { transform: scaleY(0.5); }
-        }
-
-        /* Stop TTS button */
-        .btn-stop-tts {
-            background: var(--error);
-            padding: 0.4rem 0.6rem;
-            font-size: 0.7rem;
-        }
-    </style>
-</head>
-<body>
-    <div class="workspace">
-        <header class="header">
-            <div class="logo">
-                <div class="logo-icon">TD</div>
-                <h1><span>TDSM</span> // News Verification Workspace</h1>
-            </div>
-            <div class="header-controls">
-                <div class="tts-controls">
-                    <label>Kokoro TTS</label>
-                    <div class="tts-toggle active" id="tts-toggle" onclick="toggleTTS()"></div>
-                    <select class="voice-select" id="voice-select" onchange="changeVoice()">
-                        <option value="friday">Friday (Female)</option>
-                        <option value="echo">Echo (Male)</option>
-                    </select>
-                    <span class="tts-status" id="tts-status">Ready</span>
-                </div>
-            </div>
-        </header>
-
-        <main class="main">
-            <!-- Input Section -->
-            <div class="input-section">
-                <div class="input-tabs">
-                    <div class="input-tab active" data-tab="url" onclick="switchTab('url')">URL</div>
-                    <div class="input-tab" data-tab="text" onclick="switchTab('text')">Text</div>
-                    <div class="input-tab" data-tab="clipboard" onclick="switchTab('clipboard')">Clipboard</div>
-                </div>
-
-                <div class="input-panel active" id="panel-url">
-                    <div class="url-input-group">
-                        <input type="url" id="url-input" placeholder="Paste news article URL here...">
-                        <button class="btn" onclick="verifyURL()">Verify</button>
-                    </div>
-                </div>
-
-                <div class="input-panel" id="panel-text">
-                    <textarea id="text-input" placeholder="Paste the news article text here..."></textarea>
-                    <div style="margin-top: 0.75rem; display: flex; justify-content: flex-end;">
-                        <button class="btn" onclick="verifyText()">Verify</button>
-                    </div>
-                </div>
-
-                <div class="input-panel" id="panel-clipboard">
-                    <p style="color: var(--fg-muted); font-size: 0.8rem; margin-bottom: 1rem;">
-                        Click the button below to read and verify content from your clipboard.
-                    </p>
-                    <button class="btn" onclick="verifyClipboard()">Read Clipboard & Verify</button>
-                </div>
-            </div>
-
-            <!-- Pipeline Status -->
-            <div class="pipeline-status" id="pipeline">
-                <span class="pipeline-step" data-step="fetch">FETCH</span>
-                <span class="pipeline-arrow">→</span>
-                <span class="pipeline-step" data-step="trust">TRUST LAYER</span>
-                <span class="pipeline-arrow">→</span>
-                <span class="pipeline-step" data-step="search">WEB SEARCH</span>
-                <span class="pipeline-arrow">→</span>
-                <span class="pipeline-step" data-step="kg">KNOWLEDGE GRAPH</span>
-                <span class="pipeline-arrow">→</span>
-                <span class="pipeline-step" data-step="verdict">VERDICT</span>
-            </div>
-
-            <!-- Verdict Card -->
-            <div class="verdict-card" id="verdict-card">
-                <div class="verdict-header">
-                    <span class="verdict-label">Verification Result</span>
-                    <span class="verdict-badge processing" id="verdict-badge">READY</span>
-                </div>
-                <div class="verdict-content">
-                    <div class="verdict-summary" id="verdict-summary">
-                        Enter a URL or paste text to verify news content. The system will analyze credibility, search for corroborating evidence, and deliver a verdict.
-                    </div>
-                    <div class="verdict-confidence" id="verdict-confidence" style="display: none;">
-                        <span class="confidence-label">Confidence</span>
-                        <div class="confidence-bar">
-                            <div class="confidence-fill" id="confidence-fill" style="width: 0%"></div>
-                        </div>
-                        <span class="confidence-label" id="confidence-value">0%</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Evidence Section -->
-            <div class="evidence-section" id="evidence-section" style="display: none;">
-                <div class="evidence-header">
-                    <span>Supporting Evidence</span>
-                    <span id="evidence-count">0 sources</span>
-                </div>
-                <div class="evidence-list" id="evidence-list"></div>
-            </div>
-            
-            <!-- LLM Analysis Section -->
-            <div class="evidence-section" id="llm-section" style="display: none;">
-                <div class="evidence-header">
-                    <span>🤖 AI Analysis</span>
-                </div>
-                <div style="padding: 12px;">
-                    <div id="llm-reasoning" style="color: var(--fg-muted); margin-bottom: 12px;"></div>
-                    <div id="llm-red-flags" style="display: none;">
-                        <div style="color: var(--error); font-weight: 500; margin-bottom: 6px;">⚠️ Red Flags:</div>
-                        <ul id="red-flags-list" style="color: var(--error); margin: 0; padding-left: 20px;"></ul>
-                    </div>
-                    <div id="llm-credibility" style="display: none; margin-top: 12px;">
-                        <div style="color: var(--accent); font-weight: 500; margin-bottom: 6px;">✓ Credibility Signals:</div>
-                        <ul id="credibility-list" style="color: var(--accent); margin: 0; padding-left: 20px;"></ul>
-                    </div>
-                </div>
-            </div>
-        </main>
-
-        <aside class="sidebar">
-            <div class="sidebar-section">
-                <div class="sidebar-header">
-                    <span>Document Analysis</span>
-                    <span id="doc-count">0 docs</span>
-                </div>
-                <div class="stats-grid" id="stats-grid" style="display: none;">
-                    <div class="stat-item">
-                        <div class="stat-value accent" id="stat-trusted">0</div>
-                        <div class="stat-label">Trusted</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-value" id="stat-filtered">0</div>
-                        <div class="stat-label">Filtered</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-value" id="stat-hoax">0</div>
-                        <div class="stat-label">Hoax</div>
-                    </div>
-                </div>
-                <div class="sidebar-content" id="documents-list">
-                    <div class="empty-state">
-                        <div class="empty-state-icon">📄</div>
-                        <div>No content analyzed yet</div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="bookmarklet-section">
-                <div class="bookmarklet-title">Quick Verify Bookmarklet</div>
-                <a class="bookmarklet-link" href="javascript:(function(){var url=encodeURIComponent(window.location.href);window.open('http://localhost:5000/?verify='+url,'_blank')})();" onclick="return false;">
-                    📌 Verify This Page
-                </a>
-                <div class="bookmarklet-hint">Drag this to your bookmarks bar</div>
-            </div>
-        </aside>
-    </div>
-
-    <!-- TTS Speaking Indicator -->
-    <div class="speaking-indicator" id="speaking-indicator">
-        <div class="speaking-waves">
-            <div class="speaking-wave"></div>
-            <div class="speaking-wave"></div>
-            <div class="speaking-wave"></div>
-            <div class="speaking-wave"></div>
-            <div class="speaking-wave"></div>
-        </div>
-        <span>Speaking...</span>
-    </div>
-
-    <script>
-        // Kokoro TTS Setup
-        let ttsEnabled = true;
-
-        function toggleTTS() {
-            ttsEnabled = !ttsEnabled;
-            document.getElementById('tts-toggle').classList.toggle('active', ttsEnabled);
-
-            // Update server state
-            fetch('/api/tts/toggle', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ enabled: ttsEnabled })
-            });
-        }
-
-        function changeVoice() {
-            const voice = document.getElementById('voice-select').value;
-            fetch('/api/tts/voice', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ voice: voice })
-            }).then(res => res.json()).then(data => {
-                if (data.success) {
-                    updateTTSStatus('Voice: ' + voice);
-                }
-            });
-        }
-
-        function speak(text) {
-            if (!ttsEnabled || !text) return;
-
-            updateTTSStatus('Speaking...');
-            document.getElementById('speaking-indicator').classList.add('active');
-
-            fetch('/api/tts/speak', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: text })
-            }).then(res => res.json()).then(data => {
-                // TTS is async on server, indicator will stay for a bit
-                setTimeout(() => {
-                    document.getElementById('speaking-indicator').classList.remove('active');
-                    updateTTSStatus('Ready');
-                }, 2000);
-            }).catch(err => {
-                document.getElementById('speaking-indicator').classList.remove('active');
-                updateTTSStatus('Error');
-            });
-        }
-
-        function updateTTSStatus(status) {
-            const el = document.getElementById('tts-status');
-            el.textContent = status;
-            el.classList.toggle('offline', status === 'Error' || status === 'Offline');
-        }
-
-        // Check TTS status on load
-        fetch('/api/tts/status').then(res => res.json()).then(data => {
-            updateTTSStatus(data.available ? 'Ready' : 'Offline');
-            if (!data.available) {
-                document.getElementById('tts-toggle').classList.remove('active');
-                ttsEnabled = false;
-            }
-        });
-
-        // Tab switching
-        function switchTab(tab) {
-            document.querySelectorAll('.input-tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.input-panel').forEach(p => p.classList.remove('active'));
-            document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
-            document.getElementById(`panel-${tab}`).classList.add('active');
-        }
-
-        // Pipeline steps
-        function setStep(step, state) {
-            const el = document.querySelector(`[data-step="${step}"]`);
-            if (el) {
-                el.classList.remove('active', 'done', 'error');
-                if (state) el.classList.add(state);
-            }
-        }
-
-        function resetPipeline() {
-            document.querySelectorAll('.pipeline-step').forEach(el => {
-                el.classList.remove('active', 'done', 'error');
-            });
-        }
-
-        // Render documents
-        function renderDocuments(documents) {
-            const container = document.getElementById('documents-list');
-            const countEl = document.getElementById('doc-count');
-            const statsEl = document.getElementById('stats-grid');
-
-            if (!documents || documents.length === 0) {
-                container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📄</div><div>No documents</div></div>';
-                countEl.textContent = '0 docs';
-                statsEl.style.display = 'none';
-                return;
-            }
-
-            countEl.textContent = `${documents.length} docs`;
-
-            const trusted = documents.filter(d => d.status === 'valid').length;
-            const filtered = documents.filter(d => d.status !== 'valid').length;
-            const hoax = documents.filter(d => d.status === 'hoax').length;
-
-            document.getElementById('stat-trusted').textContent = trusted;
-            document.getElementById('stat-filtered').textContent = filtered;
-            document.getElementById('stat-hoax').textContent = hoax;
-            statsEl.style.display = 'grid';
-
-            container.innerHTML = documents.map((doc, i) => {
-                const isFiltered = doc.status !== 'valid';
-                const badgeClass = doc.status === 'valid' ? 'valid' : doc.status === 'hoax' ? 'hoax' : 'outlier';
-                const badgeText = doc.status === 'valid' ? 'TRUSTED' : doc.status === 'hoax' ? 'HOAX' : 'FILTERED';
-
-                return `
-                    <div class="doc-card">
-                        <div class="doc-header">
-                            <span class="doc-index">DOC ${i + 1}</span>
-                            <span class="doc-badge ${badgeClass}">${badgeText}</span>
-                        </div>
-                        <div class="doc-text ${isFiltered ? 'filtered' : ''}">${escapeHtml(doc.text)}</div>
-                        ${doc.credibility_score !== null ? `
-                        <div class="doc-scores">
-                            <span>Trust: <span class="doc-score-value ${doc.credibility_score >= 0.7 ? 'good' : doc.credibility_score >= 0.4 ? 'warn' : 'bad'}">${(doc.credibility_score * 100).toFixed(0)}%</span></span>
-                            ${doc.hoax_probability !== null ? `<span>Hoax: <span class="doc-score-value ${doc.hoax_probability <= 0.3 ? 'good' : doc.hoax_probability <= 0.6 ? 'warn' : 'bad'}">${(doc.hoax_probability * 100).toFixed(0)}%</span></span>` : ''}
-                        </div>
-                        ` : ''}
-                    </div>
-                `;
-            }).join('');
-        }
-
-        // Render evidence
-        function renderEvidence(evidence) {
-            const section = document.getElementById('evidence-section');
-            const list = document.getElementById('evidence-list');
-            const count = document.getElementById('evidence-count');
-
-            if (!evidence || evidence.length === 0) {
-                section.style.display = 'none';
-                return;
-            }
-
-            section.style.display = 'block';
-            count.textContent = `${evidence.length} sources`;
-
-            list.innerHTML = evidence.map(e => `
-                <div class="evidence-item">
-                    <span class="evidence-icon">${e.is_trusted ? '✅' : e.supports ? '📰' : e.contradicts ? '❌' : '📰'}</span>
-                    <div class="evidence-content">
-                        <div class="evidence-title">${escapeHtml(e.title)}</div>
-                        <div class="evidence-source">
-                            ${e.url ? `<a href="${e.url}" target="_blank">${e.source || new URL(e.url).hostname}</a>` : e.source || 'Unknown source'}
-                            ${e.is_trusted ? '<span style="color: var(--accent); margin-left: 8px;">✓ Trusted</span>' : ''}
-                        </div>
-                    </div>
-                </div>
-            `).join('');
-        }
+@app.route('/stream_audio')
+def stream_audio():
+    """Stream audio bytes to the client"""
+    if not tts_voice:
+        return "TTS not initialized", 404
         
-        function renderLLMAnalysis(llmAnalysis) {
-            const section = document.getElementById('llm-section');
-            const reasoning = document.getElementById('llm-reasoning');
-            const redFlagsSection = document.getElementById('llm-red-flags');
-            const redFlagsList = document.getElementById('red-flags-list');
-            const credibilitySection = document.getElementById('llm-credibility');
-            const credibilityList = document.getElementById('credibility-list');
+    def generate():
+        for chunk in tts_voice.get_audio_stream():
+            yield chunk
+
+    from flask import Response
+    return Response(generate(), mimetype='application/octet-stream')
+
+
+@app.route('/api/tts/generate', methods=['POST'])
+def generate_tts():
+    """Generate audio for a single text chunk using edge-tts."""
+    import asyncio
+    import edge_tts
+    import io
+    from flask import Response
+    
+    data = request.json or {}
+    text = data.get('text', '')
+    
+    if not text:
+        return jsonify({'error': 'No text provided'}), 400
+    
+    # Limit text length
+    text = text[:2000]
+    
+    voice = "en-US-EmmaNeural"  # Friday voice
+    
+    async def generate_audio():
+        """Generate audio using edge-tts."""
+        audio_bytes = io.BytesIO()
+        communicate = edge_tts.Communicate(text, voice, rate="+5%", pitch="+3Hz")
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_bytes.write(chunk["data"])
+        return audio_bytes.getvalue()
+    
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        audio_data = loop.run_until_complete(generate_audio())
+        loop.close()
+        
+        if audio_data:
+            return Response(audio_data, mimetype='audio/mpeg')
+        else:
+            return jsonify({'error': 'No audio generated'}), 500
             
-            if (!llmAnalysis) {
-                section.style.display = 'none';
-                return;
-            }
-            
-            section.style.display = 'block';
-            
-            // Set reasoning
-            if (llmAnalysis.reasoning) {
-                reasoning.textContent = llmAnalysis.reasoning;
-            }
-            
-            // Render red flags
-            if (llmAnalysis.red_flags && llmAnalysis.red_flags.length > 0) {
-                redFlagsSection.style.display = 'block';
-                redFlagsList.innerHTML = llmAnalysis.red_flags.map(flag => 
-                    `<li>${escapeHtml(flag)}</li>`
-                ).join('');
-            } else {
-                redFlagsSection.style.display = 'none';
-            }
-            
-            // Render credibility signals
-            if (llmAnalysis.credibility_signals && llmAnalysis.credibility_signals.length > 0) {
-                credibilitySection.style.display = 'block';
-                credibilityList.innerHTML = llmAnalysis.credibility_signals.map(signal => 
-                    `<li>${escapeHtml(signal)}</li>`
-                ).join('');
-            } else {
-                credibilitySection.style.display = 'none';
-            }
-        }
+    except Exception as e:
+        print(f"[TTS] Error generating audio: {e}")
+        return jsonify({'error': str(e)}), 500
 
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
 
-        // Verification functions
-        async function verifyURL() {
-            const url = document.getElementById('url-input').value.trim();
-            if (!url) {
-                alert('Please enter a URL');
-                return;
-            }
-            await runVerification({ type: 'url', content: url });
-        }
-
-        async function verifyText() {
-            const text = document.getElementById('text-input').value.trim();
-            if (!text) {
-                alert('Please enter some text');
-                return;
-            }
-            await runVerification({ type: 'text', content: text });
-        }
-
-        async function verifyClipboard() {
-            try {
-                const text = await navigator.clipboard.readText();
-                if (!text) {
-                    alert('Clipboard is empty');
-                    return;
-                }
-                document.getElementById('text-input').value = text;
-                switchTab('text');
-                await runVerification({ type: 'text', content: text });
-            } catch (err) {
-                alert('Could not read clipboard. Please paste manually.');
-            }
-        }
-
-        async function runVerification(input) {
-            resetPipeline();
-
-            const badge = document.getElementById('verdict-badge');
-            const summary = document.getElementById('verdict-summary');
-            const confidenceSection = document.getElementById('verdict-confidence');
-
-            badge.className = 'verdict-badge processing';
-            badge.textContent = 'ANALYZING';
-            summary.textContent = 'Analyzing content...';
-            confidenceSection.style.display = 'none';
-
-            speak('Starting verification analysis.');
-
-            try {
-                // Timer-based progress animation while waiting for API
-                const steps = ['fetch', 'trust', 'search', 'kg', 'verdict'];
-                const stepMessages = [
-                    'Fetching article content...',
-                    'Analyzing with Trust Layer...',
-                    'Searching for corroboration...',
-                    'Building Knowledge Graph...',
-                    'Generating verdict...'
-                ];
-                
-                let currentStep = 0;
-                setStep(steps[currentStep], 'active');
-                summary.textContent = stepMessages[currentStep];
-                
-                // Advance steps every 3 seconds while waiting
-                const progressInterval = setInterval(() => {
-                    if (currentStep < steps.length - 1) {
-                        setStep(steps[currentStep], 'done');
-                        currentStep++;
-                        setStep(steps[currentStep], 'active');
-                        summary.textContent = stepMessages[currentStep];
-                    }
-                }, 3000);
-
-                const response = await fetch('/api/verify', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(input)
-                });
-
-                // Stop progress timer
-                clearInterval(progressInterval);
-                
-                const data = await response.json();
-                
-                // Mark all steps as done
-                steps.forEach(step => setStep(step, 'done'));
-
-                if (data.error) {
-                    throw new Error(data.error);
-                }
-
-                // Display results
-                const verdictClass = data.verdict === 'TRUE' ? 'true' :
-                                     data.verdict === 'FALSE' ? 'false' : 'uncertain';
-
-                badge.className = `verdict-badge ${verdictClass}`;
-                badge.textContent = data.verdict || 'UNCERTAIN';
-                summary.textContent = data.summary || 'Analysis complete.';
-
-                if (data.confidence !== undefined) {
-                    confidenceSection.style.display = 'flex';
-                    document.getElementById('confidence-fill').style.width = `${data.confidence * 100}%`;
-                    document.getElementById('confidence-value').textContent = `${(data.confidence * 100).toFixed(0)}%`;
-                }
-
-                // Render documents and evidence
-                if (data.documents) renderDocuments(data.documents);
-                if (data.evidence) renderEvidence(data.evidence);
-                if (data.llm_analysis) renderLLMAnalysis(data.llm_analysis);
-
-                // TTS for verdict
-                const ttsText = `Verdict: ${data.verdict}. ${data.summary}`;
-                speak(ttsText);
-
-            } catch (err) {
-                setStep('fetch', 'error');
-                badge.className = 'verdict-badge false';
-                badge.textContent = 'ERROR';
-                summary.textContent = `Error: ${err.message}`;
-                speak(`Verification failed. ${err.message}`);
-            }
-        }
-
-        function sleep(ms) {
-            return new Promise(resolve => setTimeout(resolve, ms));
-        }
-
-        // Initialize after DOM is ready
-        document.addEventListener('DOMContentLoaded', function() {
-            // Check for URL parameter (from bookmarklet)
-            const urlParams = new URLSearchParams(window.location.search);
-            const verifyParam = urlParams.get('verify');
-            if (verifyParam) {
-                console.log('[Bookmarklet] URL param found:', verifyParam);
-                // Switch to URL tab and auto-fill
-                switchTab('url');
-                const urlInput = document.getElementById('url-input');
-                if (urlInput) {
-                    urlInput.value = decodeURIComponent(verifyParam);
-                    console.log('[Bookmarklet] Filled input:', urlInput.value);
-                }
-                // Clear the URL parameter to prevent re-triggering on refresh
-                window.history.replaceState({}, document.title, window.location.pathname);
-                // Start verification after a delay
-                setTimeout(() => {
-                    console.log('[Bookmarklet] Starting verification...');
-                    verifyURL();
-                }, 1500);
-            }
-
-            // Keyboard shortcuts
-            document.addEventListener('keydown', (e) => {
-                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                    e.preventDefault();
-                    const activeTab = document.querySelector('.input-tab.active').dataset.tab;
-                    if (activeTab === 'url') verifyURL();
-                    else if (activeTab === 'text') verifyText();
-                    else verifyClipboard();
-                }
-            });
-        });
-    </script>
-</body>
-</html>
-'''
+@app.route('/api/tts/sentences', methods=['POST'])
+def get_sentences():
+    """Split text into sentences for chunked TTS."""
+    import re
+    
+    data = request.json or {}
+    text = data.get('text', '')
+    
+    if not text:
+        return jsonify({'sentences': []})
+    
+    # Split by sentence-ending punctuation
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+    sentences = [s.strip() for s in sentences if s.strip()]
+    
+    # Limit to first 10 sentences
+    sentences = sentences[:10]
+    
+    return jsonify({'sentences': sentences})
 
 
 @app.route('/')
 def index():
     """Serve the workspace interface."""
-    return render_template_string(HTML_TEMPLATE)
-
+    return render_template('workspace.html')
 
 @app.route('/api/verify', methods=['POST'])
 def verify():
@@ -1363,6 +170,43 @@ def verify():
         hoax_detected = False
         avg_hoax_prob = 0
 
+        # Step 1.5: Check INPUT source credibility
+        input_source_trusted = None  # None = unknown/text input, True/False = verified
+        input_source_name = None
+
+        # Try to extract source from URL or from text content
+        if source_url:
+            try:
+                from src.tools.source_credibility import SourceCredibilityAnalyzer
+                src_analyzer = SourceCredibilityAnalyzer()
+                src_analysis = src_analyzer.analyze_source(source_url, article_title or "")
+                input_source_trusted = src_analysis.is_trusted
+                input_source_name = src_analysis.source_name
+                if src_analysis.is_suspicious:
+                    input_source_trusted = False
+                print(f"[InputSource] {input_source_name}: trusted={input_source_trusted}")
+            except Exception as e:
+                print(f"[InputSource] Error checking source: {e}")
+        else:
+            # Try to extract source from pasted text (e.g., "Source: XYZ")
+            import re
+            source_match = re.search(r'Source:\s*([^\n]+)', content, re.IGNORECASE)
+            if source_match:
+                input_source_name = source_match.group(1).strip()
+                # Check if this source is in our trusted list
+                try:
+                    from src.tools.source_credibility import TRUSTED_SOURCES
+                    source_lower = input_source_name.lower()
+                    input_source_trusted = any(
+                        trusted in source_lower or source_lower in trusted
+                        for trusted in TRUSTED_SOURCES.keys()
+                    )
+                    if not input_source_trusted:
+                        input_source_trusted = False  # Explicitly mark as untrusted
+                    print(f"[InputSource] Extracted from text: {input_source_name}, trusted={input_source_trusted}")
+                except Exception as e:
+                    print(f"[InputSource] Error checking extracted source: {e}")
+
         # Step 2: Trust Layer (Credibility Analysis)
         try:
             from src.hoax_detection.credibility_report import CredibilityAnalyzer
@@ -1401,23 +245,69 @@ def verify():
         search_supports = 0
         search_contradicts = 0
         fetched_contents = []  # Store fetched content for LLM analysis
+        # fetched_contents = []  # Store fetched content for LLM analysis (moved inside the try block)
 
         try:
             from src.tools.enhanced_search import EnhancedSearcher
             searcher = EnhancedSearcher(max_results=15)
 
-            # Generate search query from title (cleaner) or content as fallback
-            if article_title and article_title.strip() and article_title != "Unknown":
-                search_query = article_title.strip()  # Use clean title directly
-            elif documents:
-                # Extract key phrases from content (first 50 words)
-                search_query = generate_search_query(documents[0][:1000])
-            else:
-                search_query = "news verification"
-            print(f"[EnhancedSearcher] Query: {search_query[:80]}...")
+            # Generate TARGETED search queries for verification
+            search_queries = []
+            try:
+                from src.models.gemini_summarizer import GeminiSummarizer
+                query_gen = GeminiSummarizer()
+                text_content = (article_title + "\n" + documents[0]) if article_title and documents else (documents[0] if documents else "")
+                
+                # Get 3 targeted queries (Partnerships, Specs, Exclusives)
+                search_queries = query_gen.extract_verification_queries(text_content, article_title or "")
+                print(f"[Verification] Generated queries: {search_queries}")
+            except Exception as e:
+                print(f"[Warning] Query generation failed: {e}")
+                search_queries = [article_title.strip()] if article_title else ["news verification"]
+
+            # Execute searches for ALL queries
+            all_results = []
+            seen_urls = set()
             
-            # Search AND fetch content from top 3 results
-            results = searcher.search_and_fetch_sync(search_query, max_fetch=3)
+            # 1. Primary search (first query is usually the most relevant overall)
+            if search_queries:
+                primary_results = searcher.search_sync(search_queries[0], max_results=5)
+                for r in primary_results:
+                    if r.url not in seen_urls:
+                        all_results.append(r)
+                        seen_urls.add(r.url)
+            
+            # 2. Secondary searches (quick checks for specific claims)
+            for q in search_queries[1:]:
+                sub_results = searcher.search_sync(q, max_results=3)
+                for r in sub_results:
+                    if r.url not in seen_urls:
+                        all_results.append(r)
+                        seen_urls.add(r.url)
+
+            # Limit total results
+            results = all_results[:10]
+            
+            # Fetch content for top 3 unique results
+            fetched_contents = []
+            fetch_count = 0
+            
+            for res in results:
+                if fetch_count >= 3: break
+                
+                # Skip if it's the source domain (simple check)
+                if source_url and (source_url in res.url or res.url in source_url):
+                    continue
+                    
+                print(f"[EnhancedSearcher] Fetching verification source: {res.url[:50]}...")
+                content = searcher.fetch_url_content(res.url)
+                if content:
+                    fetched_contents.append({
+                        'title': res.title,
+                        'url': res.url,
+                        'content': content  # fetch_url_content returns string directly
+                    })
+                    fetch_count += 1
             
             # Analyze source credibility of search results
             corroboration = None
@@ -1478,6 +368,29 @@ def verify():
         except Exception as e:
             print(f"Web search error: {e}")
 
+        # Step 3.5: Outlier Detection (compare input vs search results)
+        input_is_outlier = False
+        outlier_similarity = 1.0
+        if fetched_contents and documents:
+            try:
+                from src.hoax_detection.outlier_detector import OutlierDetector
+                # Combine input article with fetched search content
+                all_docs = [documents[0]] + [fc['content'] for fc in fetched_contents if fc.get('content')]
+
+                if len(all_docs) >= 2:  # Need at least input + 1 search result
+                    print(f"[OutlierDetector] Comparing input article against {len(all_docs)-1} search results...")
+                    outlier_detector = OutlierDetector(threshold_z=2.0, method="indobert")  # Semantic embeddings
+                    outlier_analysis = outlier_detector.detect_outliers(all_docs)
+
+                    # Check if input article (index 0) is an outlier
+                    if outlier_analysis.results:
+                        input_result = outlier_analysis.results[0]
+                        input_is_outlier = input_result.is_outlier
+                        outlier_similarity = input_result.similarity_to_centroid
+                        print(f"[OutlierDetector] Input similarity: {outlier_similarity:.3f}, outlier: {input_is_outlier}")
+            except Exception as e:
+                print(f"[OutlierDetector] Error: {e}")
+
         # Step 4: Knowledge Graph (if available)
         kg_confidence = 0.5
         try:
@@ -1499,7 +412,11 @@ def verify():
                 title=article_title or "Unknown",
                 content=documents[0] if documents else "",
                 hoax_probability=avg_hoax_prob if hoax_detected else None,
-                search_results=evidence
+                search_results=evidence,
+                source_trusted=input_source_trusted,
+                source_name=input_source_name,
+                is_outlier=input_is_outlier,
+                outlier_similarity=outlier_similarity
             )
             print(f"[LLM Verifier] Summary: {llm_verdict.get('summary', '')[:100]}...")
         except Exception as e:
@@ -1534,6 +451,121 @@ def verify():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
+
+# =============================================================================
+# VERIFICATION STEP HELPERS (Extracted to reduce generate() branch count)
+# =============================================================================
+
+def _run_trust_layer(documents: List[str]) -> Tuple[bool, float, List[Dict]]:
+    """Run hoax detection and credibility analysis."""
+    hoax_detected = False
+    avg_hoax_prob = 0.0
+    doc_analysis = []
+    
+    try:
+        from src.hoax_detection.credibility_report import CredibilityAnalyzer
+        analyzer = CredibilityAnalyzer(
+            hoax_model_path="models/hoax_indobert_lora",
+            outlier_threshold_z=2.0
+        )
+        report = analyzer.analyze(documents)
+        
+        # Unload model to free VRAM
+        analyzer.unload()
+        del analyzer
+        import gc
+        gc.collect()
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        if report.documents:
+            for doc_result in report.documents:
+                doc_analysis.append({
+                    'text': doc_result.text[:200] + '...',
+                    'hoax_probability': doc_result.hoax_probability,
+                    'hoax_label': doc_result.hoax_label,
+                    'credibility_score': doc_result.credibility_score
+                })
+                if doc_result.hoax_label == 'HOAX':
+                    hoax_detected = True
+                avg_hoax_prob += doc_result.hoax_probability
+            avg_hoax_prob /= len(report.documents)
+    except Exception as e:
+        print(f"Trust layer error: {e}")
+    
+    return hoax_detected, avg_hoax_prob, doc_analysis
+
+
+def _run_web_search(article_title: Optional[str], documents: List[str]) -> Tuple[List[Dict], int]:
+    """Search for corroborating sources."""
+    evidence = []
+    search_supports = 0
+    
+    try:
+        from src.tools.enhanced_search import EnhancedSearcher
+        from src.tools.source_credibility import SourceCredibilityAnalyzer
+        
+        searcher = EnhancedSearcher(max_results=15)
+        search_query = article_title if article_title else generate_search_query(documents[0][:1000])
+        results = searcher.search_and_fetch_sync(search_query, max_fetch=7)
+        
+        credibility_analyzer = SourceCredibilityAnalyzer()
+        results_dicts = [{'url': r.url, 'title': r.title, 'snippet': r.snippet} for r in results]
+        corroboration = credibility_analyzer.analyze_search_results(results_dicts)
+        
+        for r in results[:5]:
+            is_trusted = False
+            source_name = r.domain
+            if corroboration:
+                for src in corroboration.sources:
+                    if src.url == r.url:
+                        is_trusted = src.is_trusted
+                        source_name = src.source_name
+                        break
+            evidence.append({
+                'title': r.title,
+                'url': r.url,
+                'source': source_name,
+                'is_trusted': is_trusted
+            })
+        
+        search_supports = corroboration.num_trusted if corroboration else 0
+    except Exception as e:
+        print(f"Search error: {e}")
+    
+    return evidence, search_supports
+
+
+def _run_knowledge_graph(documents: List[str]) -> Dict:
+    """Build knowledge graph and return stats."""
+    kg_stats = {'entities': 0, 'relations': 0}
+    try:
+        from src.models.knowledge_graph import KnowledgeGraph
+        kg = KnowledgeGraph(name="verify_kg")
+        kg.add_documents(documents, show_progress=False)
+        kg_stats = kg.get_stats()
+    except Exception as e:
+        print(f"KG error: {e}")
+    return kg_stats
+
+
+def _run_llm_verdict(article_title: Optional[str], documents: List[str], 
+                     hoax_detected: bool, avg_hoax_prob: float, evidence: List[Dict]) -> Optional[Dict]:
+    """Get LLM verdict on the article."""
+    try:
+        from src.models.gemini_summarizer import GeminiSummarizer
+        llm = GeminiSummarizer()
+        return llm.verify_article(
+            title=article_title or "Unknown",
+            content=documents[0] if documents else "",
+            hoax_probability=avg_hoax_prob if hoax_detected else None,
+            search_results=evidence
+        )
+    except Exception as e:
+        print(f"LLM error: {e}")
+        return None
 
 
 @app.route('/api/verify-stream', methods=['POST'])
@@ -1583,110 +615,24 @@ def verify_stream():
             
             # Step 2: TRUST LAYER
             yield send_event('trust', 'active', 'Running hoax detection...')
-            
-            hoax_detected = False
-            avg_hoax_prob = 0
-            doc_analysis = []
-            
-            try:
-                from src.hoax_detection.credibility_report import CredibilityAnalyzer
-                analyzer = CredibilityAnalyzer(
-                    hoax_model_path="models/hoax_indobert_lora",
-                    outlier_threshold_z=2.0
-                )
-                report = analyzer.analyze(documents)
-                
-                if report.documents:
-                    for doc_result in report.documents:
-                        doc_analysis.append({
-                            'text': doc_result.text[:200] + '...',
-                            'hoax_probability': doc_result.hoax_probability,
-                            'hoax_label': doc_result.hoax_label,
-                            'credibility_score': doc_result.credibility_score
-                        })
-                        if doc_result.hoax_label == 'HOAX':
-                            hoax_detected = True
-                        avg_hoax_prob += doc_result.hoax_probability
-                    
-                    avg_hoax_prob /= len(report.documents)
-            except Exception as e:
-                print(f"Trust layer error: {e}")
-            
+            hoax_detected, avg_hoax_prob, doc_analysis = _run_trust_layer(documents)
             yield send_event('trust', 'done', f'Hoax probability: {avg_hoax_prob:.1%}')
             
             # Step 3: WEB SEARCH
             yield send_event('search', 'active', 'Searching for corroboration...')
-            
-            evidence = []
-            search_supports = 0
-            
-            try:
-                from src.tools.enhanced_search import EnhancedSearcher
-                searcher = EnhancedSearcher(max_results=15)
-                
-                search_query = article_title if article_title else generate_search_query(documents[0][:1000])
-                results = searcher.search_and_fetch_sync(search_query, max_fetch=7)
-                
-                # Analyze credibility
-                from src.tools.source_credibility import SourceCredibilityAnalyzer
-                credibility_analyzer = SourceCredibilityAnalyzer()
-                results_dicts = [{'url': r.url, 'title': r.title, 'snippet': r.snippet} for r in results]
-                corroboration = credibility_analyzer.analyze_search_results(results_dicts)
-                
-                for r in results[:5]:
-                    is_trusted = False
-                    source_name = r.domain
-                    if corroboration:
-                        for src in corroboration.sources:
-                            if src.url == r.url:
-                                is_trusted = src.is_trusted
-                                source_name = src.source_name
-                                break
-                    
-                    evidence.append({
-                        'title': r.title,
-                        'url': r.url,
-                        'source': source_name,
-                        'is_trusted': is_trusted
-                    })
-                
-                search_supports = corroboration.num_trusted if corroboration else 0
-            except Exception as e:
-                print(f"Search error: {e}")
-            
+            evidence, search_supports = _run_web_search(article_title, documents)
             yield send_event('search', 'done', f'Found {len(evidence)} sources, {search_supports} trusted')
             
             # Step 4: KNOWLEDGE GRAPH
             yield send_event('kg', 'active', 'Building knowledge graph...')
-            
-            kg_stats = {'entities': 0, 'relations': 0}
-            try:
-                from src.models.knowledge_graph import KnowledgeGraph
-                kg = KnowledgeGraph(name="verify_kg")
-                kg.add_documents(documents, show_progress=False)
-                kg_stats = kg.get_stats()
-            except Exception as e:
-                print(f"KG error: {e}")
-            
+            kg_stats = _run_knowledge_graph(documents)
             yield send_event('kg', 'done', f'{kg_stats.get("entities", 0)} entities found')
             
             # Step 5: LLM VERDICT
             yield send_event('verdict', 'active', 'Generating LLM verdict...')
+            llm_verdict = _run_llm_verdict(article_title, documents, hoax_detected, avg_hoax_prob, evidence)
             
-            llm_verdict = None
-            try:
-                from src.models.gemini_summarizer import GeminiSummarizer
-                llm = GeminiSummarizer()
-                llm_verdict = llm.verify_article(
-                    title=article_title or "Unknown",
-                    content=documents[0] if documents else "",
-                    hoax_probability=avg_hoax_prob if hoax_detected else None,
-                    search_results=evidence
-                )
-            except Exception as e:
-                print(f"LLM error: {e}")
-            
-            # Final verdict
+            # Final verdict determination
             verdict = "UNCERTAIN"
             summary = "Analysis complete."
             confidence = 0.5
@@ -1739,6 +685,14 @@ def fetch_url_content(url: str) -> Optional[Dict]:
     Uses crawl4ai with PruningContentFilter for garbage-free extraction.
     Falls back to simple extraction if crawl4ai fails.
     """
+    # Auto-expand Kompas.com pagination
+    if 'kompas.com' in url and '?page=all' not in url:
+        if '?' in url:
+            url += '&page=all'
+        else:
+            url += '?page=all'
+        print(f"[fetch_url] Kompas URL detected. Forcing single page: {url}")
+
     # Try crawl4ai first (better quality)
     try:
         from src.article_extractor import extract_article_sync
@@ -1923,8 +877,20 @@ def tts_voice_change():
     return jsonify({'success': False, 'error': 'Invalid voice'})
 
 
-def run_server(host: str = '0.0.0.0', port: int = 5000, debug: bool = False):
-    """Run the Flask server."""
+def run_server(host: str = None, port: int = 5000, debug: bool = False):
+    """
+    Run the Flask server.
+    
+    Args:
+        host: Host to bind to. Defaults to BIND_HOST env var or '127.0.0.1' (localhost only).
+              Set BIND_HOST=0.0.0.0 for Docker/LAN access.
+        port: Port to bind to.
+        debug: Enable debug mode.
+    """
+    import os
+    if host is None:
+        host = os.environ.get('BIND_HOST', '127.0.0.1')
+    
     print(f"\n{'='*60}")
     print("TDSM News Verification Workspace")
     print(f"{'='*60}")

@@ -34,13 +34,14 @@ class NewsDataLoader:
     def __init__(self, cache_dir="./data_cache"):
         self.cache_dir = cache_dir
         print("Loading XL-Sum Dataset (BBC Indonesia)...")
-        # TRUST_REMOTE_CODE=True is required for script-based datasets
+        # Pinned revision for supply chain security
         self.dataset = load_dataset(
             "csebuetnlp/xlsum", 
             "indonesian", 
             split="train", 
             cache_dir=cache_dir,
-            trust_remote_code=True 
+            trust_remote_code=True,
+            revision="b34c730"  # Pinned to Sep 2023 stable version
         )
         print(f"✓ Loaded {len(self.dataset)} articles.")
         

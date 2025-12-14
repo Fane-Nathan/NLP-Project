@@ -1,6 +1,7 @@
 import pygetwindow as gw
 import time
 import threading
+import logging
 
 class WindowMonitor:
     """
@@ -34,6 +35,7 @@ class WindowMonitor:
                         # Check for keywords
                         if any(keyword.lower() in title.lower() for keyword in self.keywords):
                             self.callback(title)
-            except Exception:
-                pass
+            except Exception as e:
+                # Window API can fail when no window is focused or on permission issues
+                logging.debug(f"Window monitoring error (expected): {e}")
             time.sleep(2.0) # Check every 2 seconds

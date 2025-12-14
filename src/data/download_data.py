@@ -125,7 +125,7 @@ def create_synthetic_turnbackhoax(output_path: str, num_samples: int = 1000) -> 
     
     samples = []
     
-    # Generate hoax samples
+    # Generate hoax samples (nosec B311 - random used for data generation, not crypto)
     for _ in range(num_samples // 2):
         pattern, label = random.choice(hoax_patterns)
         text = pattern.format(

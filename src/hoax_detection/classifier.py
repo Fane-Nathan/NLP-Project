@@ -54,8 +54,9 @@ class HoaxClassifier:
         threshold: Classification threshold (default 0.5).
     """
     
-    # Default base model
+    # Default base model with pinned revision for supply chain security
     BASE_MODEL = "indobenchmark/indobert-base-p1"
+    BASE_MODEL_REVISION = "c2cd0b51ddce6580eb35263b39b0a1e5fb0a39e2"
     
     def __init__(
         self,
@@ -117,7 +118,10 @@ class HoaxClassifier:
             os.path.join(self.model_path, "tokenizer_config.json")
         ) else base_model_name
         
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            tokenizer_path,
+            revision=self.BASE_MODEL_REVISION if tokenizer_path == base_model_name else None
+        )
         self.max_length = max_length
         
         # Check if LoRA adapters exist
@@ -130,7 +134,7 @@ class HoaxClassifier:
             base_model = AutoModelForSequenceClassification.from_pretrained(
                 base_model_name,
                 num_labels=2,
-                use_safetensors=True
+                revision=self.BASE_MODEL_REVISION
             )
             
             # Load LoRA adapters
@@ -149,7 +153,8 @@ class HoaxClassifier:
                 base_model_name,
                 num_labels=2,
                 id2label={0: "VALID", 1: "HOAX"},
-                label2id={"VALID": 0, "HOAX": 1}
+                label2id={"VALID": 0, "HOAX": 1},
+                revision=self.BASE_MODEL_REVISION
             )
         
         self.model.to(self.device)
@@ -447,6 +452,22 @@ class HoaxClassifier:
             raise ValueError("Threshold must be between 0.0 and 1.0")
         self.threshold = threshold
         print(f"[HoaxClassifier] Threshold updated to {threshold}")
+
+    def unload(self):
+        """Unload model from GPU to free VRAM."""
+        print("[HoaxClassifier] Unloading model...")
+        if self.model:
+            del self.model
+            self.model = None
+        if self.tokenizer:
+            del self.tokenizer
+            self.tokenizer = None
+        
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            print("[HoaxClassifier] VRAM cleared.")
 
 
 # Convenience function

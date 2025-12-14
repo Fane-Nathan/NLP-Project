@@ -23,7 +23,7 @@ SENTENCE_CACHE_SIZE = 1000
 
 def _get_cache_key(sentence: str, model_name: str) -> str:
     """Generate a unique cache key for a sentence + model combo."""
-    return hashlib.md5(f"{model_name}:{sentence}".encode()).hexdigest()
+    return hashlib.sha256(f"{model_name}:{sentence}".encode()).hexdigest()[:32]
 
 
 def _cache_embedding(key: str, embedding: np.ndarray) -> None:

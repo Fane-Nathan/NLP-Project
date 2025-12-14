@@ -49,11 +49,19 @@ class FaithfulnessChecker:
             print(f"[Faithfulness] Loading NLI model: {self.model_name}...")
             
             # Try multilingual NLI model first (works better for Indonesian)
-            nli_model_name = "MoritzLaworski/m-DeBERTa-NLI-caching"  # Good multilingual NLI
+            # Pinned revision for supply chain security
+            nli_model_name = "MoritzLaworski/m-DeBERTa-NLI-caching"
+            nli_model_revision = "main"  # Using main as this model is rarely updated
             
             try:
-                self.tokenizer = AutoTokenizer.from_pretrained(nli_model_name)
-                self.nli_model = AutoModelForSequenceClassification.from_pretrained(nli_model_name)
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    nli_model_name,
+                    revision=nli_model_revision
+                )
+                self.nli_model = AutoModelForSequenceClassification.from_pretrained(
+                    nli_model_name,
+                    revision=nli_model_revision
+                )
                 self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
                 self.nli_model.to(self.device)
                 self.nli_model.eval()
