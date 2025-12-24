@@ -11,6 +11,7 @@ Usage:
 """
 
 import asyncio
+import os
 from typing import List, Dict, Optional
 from dataclasses import dataclass
 from urllib.parse import urlparse
@@ -59,6 +60,21 @@ class EnhancedSearcher:
     2. Fetches full content from top results using Crawl4AI
     3. Analyzes source credibility
     """
+    
+    # Site-specific CSS selectors for Indonesian news sites
+    SITE_SELECTORS = {
+        'kompas.com': '.read__content .clearfix, .read__content',
+        'cnnindonesia.com': '.detail-text, .detail__body-text',
+        'detik.com': '.detail__body-text, .itp_bodycontent',
+        'tribunnews.com': '.txt-article, .content__article',
+        'liputan6.com': '.article-content-body__item-content',
+        'tempo.co': '.detail-konten, .detail-in',
+        'antaranews.com': '.post-content',
+        'republika.co.id': '.artikel',
+    }
+    
+    # Default article selectors (fallback)
+    DEFAULT_SELECTORS = "article, main, .article, .content, .post, [itemprop='articleBody'], .article-body, .article-content"
     
     def __init__(self, max_results: int = 10):
         self.max_results = max_results
@@ -160,34 +176,64 @@ class EnhancedSearcher:
             return None
         
         try:
+            # Handle Kompas pagination - get full article
+            fetch_url = url
+            if 'kompas.com' in url and '?page=all' not in url and '&page=all' not in url:
+                fetch_url = url + ('&' if '?' in url else '?') + 'page=all'
+                print(f"[EnhancedSearcher] Using full-page URL for Kompas")
+            
+            # Get domain for site-specific selector
+            domain = self._extract_domain(fetch_url)
+            css_selector = self.DEFAULT_SELECTORS
+            for site, selector in self.SITE_SELECTORS.items():
+                if site in domain:
+                    css_selector = selector
+                    print(f"[EnhancedSearcher] Using site-specific selector for {site}")
+                    break
+            
             browser_config = BrowserConfig(headless=True, verbose=False)
             
             crawler_config = CrawlerRunConfig(
                 cache_mode=CacheMode.BYPASS,
                 page_timeout=timeout,
-                css_selector="article, main, .article, .content, .post, [itemprop='articleBody']",
-                excluded_tags=["nav", "footer", "aside", "header", "script", "style", "noscript"],
+                css_selector=css_selector,
+                word_count_threshold=30,  # Skip blocks with < 30 words
+                excluded_tags=["nav", "footer", "aside", "header", "script", "style", 
+                              "noscript", "iframe", "form", "button", "svg"],
+                exclude_external_links=True,
+                exclude_social_media_links=True,
                 remove_overlay_elements=True,
                 markdown_generator=DefaultMarkdownGenerator(
                     content_filter=PruningContentFilter(
-                        threshold=0.6,
+                        threshold=0.5,
                         threshold_type="fixed",
-                        min_word_threshold=10
+                        min_word_threshold=15
                     ),
                     options={"ignore_links": True, "ignore_images": True}
                 ),
             )
             
             async with AsyncWebCrawler(config=browser_config) as crawler:
-                result = await crawler.arun(url=url, config=crawler_config)
+                result = await crawler.arun(url=fetch_url, config=crawler_config)
                 
                 if result.success:
+                    # Try fit_markdown first (best quality), then raw_markdown
+                    content = None
                     if hasattr(result.markdown, 'fit_markdown') and result.markdown.fit_markdown:
-                        return result.markdown.fit_markdown
-                    elif hasattr(result.markdown, 'raw_markdown'):
-                        return result.markdown.raw_markdown
+                        content = result.markdown.fit_markdown
+                    elif hasattr(result.markdown, 'raw_markdown') and result.markdown.raw_markdown:
+                        content = result.markdown.raw_markdown
+                    elif result.markdown:
+                        content = str(result.markdown)
+                    
+                    if content and len(content) > 100:
+                        print(f"[EnhancedSearcher] Fetched {len(content)} chars from {domain}")
+                        return content
                     else:
-                        return str(result.markdown) if result.markdown else None
+                        print(f"[EnhancedSearcher] Content too short from {domain}: {len(content) if content else 0} chars")
+                else:
+                    print(f"[EnhancedSearcher] Crawl failed: {result.error_message}")
+                    
         except Exception as e:
             print(f"[EnhancedSearcher] Fetch error for {url[:50]}: {e}")
         

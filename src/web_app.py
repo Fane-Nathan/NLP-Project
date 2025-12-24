@@ -631,6 +631,15 @@ HTML_TEMPLATE = '''
             </header>
 
             <div class="section">
+                <label>Add from URL</label>
+                <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                    <input type="text" id="url-input" placeholder="https://kompas.com/article-url..." style="flex: 1; padding: 0.5rem; background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--fg); border-radius: 4px;">
+                    <button id="fetch-btn" onclick="fetchUrl()" style="padding: 0.5rem 1rem; background: var(--accent); border: none; color: var(--bg); border-radius: 4px; cursor: pointer; font-weight: 600;">Fetch</button>
+                </div>
+                <div id="fetch-status" style="font-size: 0.8rem; color: var(--fg-muted);"></div>
+            </div>
+
+            <div class="section">
                 <label>Input Documents <span style="color: var(--fg-muted); text-transform: none;">(separate with blank lines)</span></label>
                 <textarea id="input" placeholder="Paste your Indonesian news articles here...
 
@@ -704,6 +713,14 @@ Or leave empty to use demo documents about Indonesian vaccination program."></te
                     <div class="metric-value" id="metric-hallucination">-</div>
                     <div class="metric-label">Verified</div>
                 </div>
+            </div>
+
+            <div class="section" id="verification-section" style="display:none;">
+                <label>Verification Details <span style="color: var(--fg-muted); text-transform: none;">(click to expand)</span></label>
+                <details>
+                    <summary style="cursor:pointer; color: var(--accent);">Show claim-by-claim analysis</summary>
+                    <div id="verification-claims" style="margin-top: 0.5rem; font-size: 0.85rem; max-height: 300px; overflow-y: auto;"></div>
+                </details>
             </div>
 
             <footer>
@@ -942,6 +959,39 @@ Or leave empty to use demo documents about Indonesian vaccination program."></te
                             hallEl.className = 'metric-value';
                         }
                     }
+                    
+                    // Verification Details
+                    if (data.verification_details && data.verification_details.claims) {
+                        const verSection = document.getElementById('verification-section');
+                        const verClaims = document.getElementById('verification-claims');
+                        verSection.style.display = 'block';
+                        
+                        const statusEmoji = {
+                            'VERIFIED': '✓',
+                            'PARTIALLY_VERIFIED': '⚠',
+                            'UNVERIFIED': '✗',
+                            'CONTRADICTED': '❌',
+                            'HALLUCINATION': '🚨'
+                        };
+                        
+                        const statusClass = {
+                            'VERIFIED': 'color: var(--success);',
+                            'PARTIALLY_VERIFIED': 'color: var(--warning);',
+                            'UNVERIFIED': 'color: var(--fg-muted);',
+                            'CONTRADICTED': 'color: var(--error);',
+                            'HALLUCINATION': 'color: var(--error);'
+                        };
+                        
+                        verClaims.innerHTML = data.verification_details.claims.map((c, i) => `
+                            <div style="padding: 0.5rem; border-left: 3px solid ${c.status === 'VERIFIED' ? 'var(--success)' : c.status === 'PARTIALLY_VERIFIED' ? 'var(--warning)' : 'var(--fg-muted)'}; margin-bottom: 0.5rem; background: var(--bg-tertiary); border-radius: 0 4px 4px 0;">
+                                <div style="${statusClass[c.status] || ''} font-weight: 600;">
+                                    ${statusEmoji[c.status] || '?'} Claim ${i + 1}: ${c.status}
+                                </div>
+                                <div style="margin-top: 0.3rem; color: var(--fg);">"${escapeHtml(c.claim)}"</div>
+                                ${c.explanation ? `<div style="margin-top: 0.2rem; color: var(--fg-muted); font-size: 0.8rem;">📋 ${escapeHtml(c.explanation)}</div>` : ''}
+                            </div>
+                        `).join('');
+                    }
                 }
             } catch (err) {
                 output.classList.remove('loading');
@@ -955,6 +1005,59 @@ Or leave empty to use demo documents about Indonesian vaccination program."></te
 
         function sleep(ms) {
             return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        // Fetch URL content
+        async function fetchUrl() {
+            const urlInput = document.getElementById('url-input');
+            const btn = document.getElementById('fetch-btn');
+            const status = document.getElementById('fetch-status');
+            const textarea = document.getElementById('input');
+            const url = urlInput.value.trim();
+
+            if (!url) {
+                status.textContent = 'Please enter a URL';
+                status.style.color = 'var(--error)';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = '...';
+            status.textContent = 'Fetching article...';
+            status.style.color = 'var(--fg-muted)';
+
+            try {
+                const response = await fetch('/api/fetch-url', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url })
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    status.textContent = 'Error: ' + data.error;
+                    status.style.color = 'var(--error)';
+                } else if (data.content) {
+                    textarea.value = data.content;
+                    status.textContent = `Fetched ${data.content.length} chars. Running pipeline...`;
+                    status.style.color = 'var(--success)';
+                    urlInput.value = '';
+                    
+                    // Auto-run pipeline
+                    await runPipeline();
+                    status.textContent = 'Done!';
+                } else {
+                    status.textContent = 'No content found';
+                    status.style.color = 'var(--warning)';
+                }
+            } catch (e) {
+                status.textContent = 'Network error: ' + e.message;
+                status.style.color = 'var(--error)';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Fetch';
+            }
         }
 
         // Keyboard shortcut
@@ -1117,6 +1220,18 @@ def summarize():
                         'filtered_docs': len(filtered_docs),
                         'hallucination_free': sum_result.is_hallucination_free,
                         'verification_rate': sum_result.verification_report.verification_rate
+                    },
+                    'verification_details': {
+                        'overall_status': sum_result.verification_report.overall_status.value,
+                        'claims': [
+                            {
+                                'claim': r.claim[:150] + '...' if len(r.claim) > 150 else r.claim,
+                                'status': r.status.value,
+                                'confidence': round(r.confidence, 2),
+                                'explanation': r.explanation
+                            }
+                            for r in sum_result.verification_report.claim_results
+                        ]
                     }
                 }
             except ImportError:
@@ -1180,6 +1295,35 @@ def _basic_summarize(documents: list, model: str, input_doc_count: int, doc_anal
 def health():
     """Health check endpoint."""
     return jsonify({'status': 'ok'})
+
+
+@app.route('/api/fetch-url', methods=['POST'])
+def fetch_url():
+    """Fetch content from a news URL using crawl4ai."""
+    try:
+        data = request.json
+        url = data.get('url', '').strip()
+        
+        if not url:
+            return jsonify({'error': 'No URL provided'}), 400
+        
+        print(f"[API] Fetching URL: {url}")
+        
+        from src.tools.enhanced_search import EnhancedSearcher
+        searcher = EnhancedSearcher()
+        
+        content = searcher.fetch_url_content(url)
+        
+        if content and len(content) > 50:
+            print(f"[API] Fetched {len(content)} chars")
+            return jsonify({'content': content})
+        else:
+            return jsonify({'error': 'Failed to extract content from URL'}), 500
+            
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 
 def run_server(host: str = None, port: int = 5000, debug: bool = False):
