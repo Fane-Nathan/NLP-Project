@@ -24,7 +24,7 @@
 
 ### 1.1 Background
 
-In today's digital age, news consumers face an overwhelming volume of information from multiple online sources. When major events occur—such as the 2022 Java earthquake or the 2024 presidential elections—hundreds of articles from different outlets cover the same story with varying perspectives, levels of detail, and potential biases. This information overload makes it difficult for readers to quickly grasp the full picture of complex, evolving stories.
+In today's digital age, news consumers face an overwhelming volume of information from multiple online sources. When major events occur such as the 2022 Java earthquake or the 2024 presidential elections hundreds of articles from different outlets cover the same story with varying perspectives, levels of detail, and potential biases. This information overload makes it difficult for readers to quickly grasp the full picture of complex, evolving stories.
 
 Multi-document summarization addresses this challenge by automatically synthesizing information from multiple sources into a single, coherent, and non-redundant summary. For Indonesian news, this capability is particularly valuable given:
 
