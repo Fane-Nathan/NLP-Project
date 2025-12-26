@@ -483,6 +483,13 @@ RINGKASAN YANG DIPERBAIKI:"""
         print(f"  Documents: {len(documents)}")
         
         # Step 1: Build/update KG if needed
+        # include external context snippets in KG to treat them as verified facts
+        if external_context:
+            print(f"[ConstrainedSummarizer] Enriched KG with {len(external_context)} search snippets")
+            snippets = [item.get('snippet', '') for item in external_context if item.get('snippet')]
+            # Add snippets to documents list for KG construction (temporary list)
+            documents = documents + snippets
+
         if self.kg.graph.number_of_nodes() == 0:
             print("[ConstrainedSummarizer] KG empty, building from documents...")
             self.build_kg_from_documents(documents, show_progress=False)
