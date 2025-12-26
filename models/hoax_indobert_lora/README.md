@@ -2,206 +2,129 @@
 base_model: indobenchmark/indobert-base-p1
 library_name: peft
 tags:
-- base_model:adapter:indobenchmark/indobert-base-p1
-- lora
-- transformers
+  - base_model:adapter:indobenchmark/indobert-base-p1
+  - lora
+  - transformers
+  - hoax-detection
+  - indonesian
+  - text-classification
+language:
+  - id
+license: mit
 ---
 
-# Model Card for Model ID
+# IndoBERT + LoRA Hoax Detection Model
 
-<!-- Provide a quick summary of what the model is/does. -->
-
-
+A fine-tuned Indonesian hoax/fake news detection model using LoRA (Low-Rank Adaptation) on IndoBERT.
 
 ## Model Details
 
 ### Model Description
 
-<!-- Provide a longer summary of what this model is. -->
+This model classifies Indonesian news articles as either **VALID** (legitimate news) or **HOAX** (misinformation/fake news). It was developed as part of the TDSM (Trust-Driven Summarization with Multi-document) project for Indonesian NLP.
 
+- **Developed by:** Felix Nathaniel, Dennison Seodibjo, and Wilbert Devos Kyenil
+- **Model type:** Text Classification (Binary)
+- **Language(s):** Indonesian (id)
+- **License:** MIT
+- **Finetuned from model:** [indobenchmark/indobert-base-p1](https://huggingface.co/indobenchmark/indobert-base-p1)
 
+### Model Sources
 
-- **Developed by:** [More Information Needed]
-- **Funded by [optional]:** [More Information Needed]
-- **Shared by [optional]:** [More Information Needed]
-- **Model type:** [More Information Needed]
-- **Language(s) (NLP):** [More Information Needed]
-- **License:** [More Information Needed]
-- **Finetuned from model [optional]:** [More Information Needed]
-
-### Model Sources [optional]
-
-<!-- Provide the basic links for the model. -->
-
-- **Repository:** [More Information Needed]
-- **Paper [optional]:** [More Information Needed]
-- **Demo [optional]:** [More Information Needed]
+- **Repository:** [Fane-Nathan/NLP-Project](https://github.com/Fane-Nathan/NLP-Project)
 
 ## Uses
 
-<!-- Address questions around how the model is intended to be used, including the foreseeable users of the model and those affected by the model. -->
-
 ### Direct Use
 
-<!-- This section is for the model use without fine-tuning or plugging into a larger ecosystem/app. -->
+Classify Indonesian text as hoax or valid news:
 
-[More Information Needed]
+```python
+from src.hoax_detection.classifier import HoaxClassifier
 
-### Downstream Use [optional]
+classifier = HoaxClassifier("models/hoax_indobert_lora")
+result = classifier.predict("Berita ini sangat mencurigakan...")
+print(result.label)  # "HOAX" or "VALID"
+print(result.hoax_probability)  # 0.0 - 1.0
+```
 
-<!-- This section is for the model use when fine-tuned for a task, or when plugged into a larger ecosystem/app -->
+### Downstream Use
 
-[More Information Needed]
+Integrated into the TDSM pipeline as the **Trust Layer** gatekeeper, filtering potentially unreliable sources before summarization.
 
 ### Out-of-Scope Use
 
-<!-- This section addresses misuse, malicious use, and uses that the model will not work well for. -->
-
-[More Information Needed]
+- Non-Indonesian text
+- Formal academic papers or technical documentation
+- Satire/parody content (may be misclassified)
 
 ## Bias, Risks, and Limitations
 
-<!-- This section is meant to convey both technical and sociotechnical limitations. -->
-
-[More Information Needed]
+- Trained primarily on social media and news article patterns
+- May have biases toward certain topics or writing styles in the training data
+- Should not be used as the sole determinant of content credibility
 
 ### Recommendations
 
-<!-- This section is meant to convey recommendations with respect to the bias, risk, and technical limitations. -->
-
-Users (both direct and downstream) should be made aware of the risks, biases and limitations of the model. More information needed for further recommendations.
-
-## How to Get Started with the Model
-
-Use the code below to get started with the model.
-
-[More Information Needed]
+Use in combination with other verification methods (fact-checking, source verification, outlier detection) for robust credibility assessment.
 
 ## Training Details
 
 ### Training Data
 
-<!-- This should link to a Dataset Card, perhaps with a short stub of information on what the training data is all about as well as documentation related to data pre-processing or additional filtering. -->
+Combined dataset from:
 
-[More Information Needed]
+- TurnBackHoax (Mafindo) fact-checking database
+- Komdigi hoax repository
+- Additional curated Indonesian news sources
 
 ### Training Procedure
 
-<!-- This relates heavily to the Technical Specifications. Content here should link to that section when it is relevant to the training procedure. -->
-
-#### Preprocessing [optional]
-
-[More Information Needed]
-
-
 #### Training Hyperparameters
 
-- **Training regime:** [More Information Needed] <!--fp32, fp16 mixed precision, bf16 mixed precision, bf16 non-mixed precision, fp16 non-mixed precision, fp8 mixed precision -->
+- **Training regime:** FP16 mixed precision
+- **LoRA rank (r):** 16
+- **LoRA alpha:** 32
+- **LoRA dropout:** 0.05
+- **Learning rate:** 2e-4
+- **Batch size:** 4 (effective 16 with gradient accumulation)
+- **Epochs:** 5
+- **Optimizer:** AdamW (fused)
+- **Scheduler:** Cosine annealing
 
-#### Speeds, Sizes, Times [optional]
-
-<!-- This section provides information about throughput, start/end time, checkpoint size if relevant, etc. -->
-
-[More Information Needed]
-
-## Evaluation
-
-<!-- This section describes the evaluation protocols and provides the results. -->
-
-### Testing Data, Factors & Metrics
-
-#### Testing Data
-
-<!-- This should link to a Dataset Card if possible. -->
-
-[More Information Needed]
-
-#### Factors
-
-<!-- These are the things the evaluation is disaggregating by, e.g., subpopulations or domains. -->
-
-[More Information Needed]
-
-#### Metrics
-
-<!-- These are the evaluation metrics being used, ideally with a description of why. -->
-
-[More Information Needed]
-
-### Results
-
-[More Information Needed]
-
-#### Summary
-
-
-
-## Model Examination [optional]
-
-<!-- Relevant interpretability work for the model goes here -->
-
-[More Information Needed]
-
-## Environmental Impact
-
-<!-- Total emissions (in grams of CO2eq) and additional considerations, such as electricity usage, go here. Edit the suggested text below accordingly -->
-
-Carbon emissions can be estimated using the [Machine Learning Impact calculator](https://mlco2.github.io/impact#compute) presented in [Lacoste et al. (2019)](https://arxiv.org/abs/1910.09700).
-
-- **Hardware Type:** [More Information Needed]
-- **Hours used:** [More Information Needed]
-- **Cloud Provider:** [More Information Needed]
-- **Compute Region:** [More Information Needed]
-- **Carbon Emitted:** [More Information Needed]
-
-## Technical Specifications [optional]
+## Technical Specifications
 
 ### Model Architecture and Objective
 
-[More Information Needed]
+- **Base:** BERT (IndoBERT-base-p1, 124M parameters)
+- **Adaptation:** LoRA applied to query, key, value, and dense layers
+- **Trainable parameters:** ~1.2M (< 1% of base model)
+- **Classification head:** 2-class softmax
 
 ### Compute Infrastructure
 
-[More Information Needed]
-
 #### Hardware
 
-[More Information Needed]
+- NVIDIA GTX 1650 (4GB VRAM) - optimized for low-memory training
+- Intel Core i5/Ryzen 5 class CPU
 
 #### Software
 
-[More Information Needed]
+- Python 3.11
+- PyTorch 2.0+
+- Transformers 4.40+
+- PEFT 0.13.0 / 0.18.0
 
-## Citation [optional]
+## Model Card Authors
 
-<!-- If there is a paper or blog post introducing the model, the APA and Bibtex information for that should go in this section. -->
-
-**BibTeX:**
-
-[More Information Needed]
-
-**APA:**
-
-[More Information Needed]
-
-## Glossary [optional]
-
-<!-- If relevant, include terms and calculations in this section that can help readers understand the model or model card. -->
-
-[More Information Needed]
-
-## More Information [optional]
-
-[More Information Needed]
-
-## Model Card Authors [optional]
-
-[More Information Needed]
+Felix Nathaniel, Dennison Seodibjo, and Wilbert Devos Kyenil
 
 ## Model Card Contact
 
-[More Information Needed]
+For questions or issues, please open an issue on the [GitHub repository](https://github.com/Fane-Nathan/NLP-Project/issues).
+
 ### Framework versions
 
-- PEFT 0.13.0
-- PEFT 0.18.0
+- PEFT 0.13.0 / 0.18.0
+- Transformers 4.40+
+- PyTorch 2.0+
