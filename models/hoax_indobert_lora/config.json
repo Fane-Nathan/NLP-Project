@@ -1,0 +1,10 @@
+{
+  "base_model": "indobenchmark/indobert-base-p1",
+  "lora_r": 8,
+  "lora_alpha": 16,
+  "max_length": 256,
+  "labels": {
+    "0": "VALID",
+    "1": "HOAX"
+  }
+}
