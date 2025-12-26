@@ -558,8 +558,38 @@ RINGKASAN YANG DIPERBAIKI:"""
             verification_report.confidence * 0.4
         )
         
+        # Relevance Check & Confidence Boost
+        has_relevance_boost = False
+        if external_context:
+            # Simple keyword extraction (naive but effective for relevance)
+            def get_keywords(text):
+                # Split, lower, remove short words
+                words = set(w.lower().strip('.,()[]{}"\'') for w in text.split())
+                return {w for w in words if len(w) > 3}
+
+            doc_text = " ".join(documents)
+            snippet_text = " ".join([item.get('snippet', '') + " " + item.get('title', '') for item in external_context])
+            
+            doc_keywords = get_keywords(doc_text)
+            snippet_keywords = get_keywords(snippet_text)
+            
+            # Calculate overlap
+            common_keywords = doc_keywords.intersection(snippet_keywords)
+            overlap_count = len(common_keywords)
+            
+            print(f"[ConstrainedSummarizer] Search Relevance: {overlap_count} matches (needs > 4)")
+            
+            if overlap_count > 4:
+                # Significant overlap found -> Boost confidence
+                confidence = min(0.95, confidence + 0.3)
+                has_relevance_boost = True
+                print(f"[ConstrainedSummarizer] Confidence boosted to {confidence:.2f}")
+
         # Add warning if confidence is low or verification failed
-        if confidence < 0.6 or verification_report.overall_status == VerificationStatus.UNVERIFIED:
+        # If we boosted confidence via search, we can be more lenient with the warning
+        warning_threshold = 0.45 if has_relevance_boost else 0.6
+        
+        if confidence < warning_threshold or verification_report.overall_status == VerificationStatus.UNVERIFIED:
             warning_msg = "\n\n⚠️ **Note**: This summary reflects the article's claims, but our AI verification found inconsistencies or lack of external corroboration. Please verify with additional sources."
             # Only add if not already present
             if "⚠️" not in summary:
