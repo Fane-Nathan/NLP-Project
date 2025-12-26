@@ -587,13 +587,24 @@ RINGKASAN YANG DIPERBAIKI:"""
 
                 # VISUAL FIX: If we trust the summary due to search, update individual claim statuses
                 # so the UI doesn't show "Hallucination" for verified content.
+                claims_updated = False
                 for claim_result in verification_report.claim_results:
                     if claim_result.status == VerificationStatus.HALLUCINATION:
                         claim_result.status = VerificationStatus.VERIFIED
                         claim_result.explanation = "Verified by corroborating web search results."
-                        # Update counts
-                        verification_report.hallucination_count -= 1
-                        verification_report.verified_count += 1
+                        claims_updated = True
+                
+                # Recalculate stats if needed (verified_count is not an attribute)
+                if claims_updated:
+                    # Count hallucinations
+                    h_count = sum(1 for r in verification_report.claim_results if r.status == VerificationStatus.HALLUCINATION)
+                    verification_report.hallucination_count = h_count
+                    
+                    # Recalculate rate
+                    v_count = sum(1 for r in verification_report.claim_results if r.status in (VerificationStatus.VERIFIED, VerificationStatus.PARTIALLY_VERIFIED))
+                    total = len(verification_report.claim_results)
+                    if total > 0:
+                        verification_report.verification_rate = v_count / total
 
         # Add warning if confidence is low or verification failed
         # If we boosted confidence via search and found relevant keywords, we TRUST the summary.
