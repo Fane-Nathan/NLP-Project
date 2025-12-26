@@ -54,3 +54,19 @@ Thumbs.db
 # Training logs
 runs/
 wandb/
+
+# Cache & Temp files
+.coverage
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+freeze_output.txt
+files.txt
+bandit_low.json
+
+# Delivery/Submission folders
+delivery/
+FINAL_SUBMISSION/
+*.zip
