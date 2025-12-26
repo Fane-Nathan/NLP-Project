@@ -315,21 +315,11 @@ All ROUGE metrics computed with **IndonesianEvaluator** using Sastrawi stemming 
 
 **Standard Test Set (Komdigi + TurnBackHoax validation split):**
 
-| Metric        | Score                   |
-| ------------- | ----------------------- |
-| **Accuracy**  | 99.0%                   |
-| **Precision** | 100.0%                  |
-| **Recall**    | 98.1%                   |
-| **F1-Score**  | **99.05%**              |
-| **ECE**       | 0.007 (well-calibrated) |
+![Hoax Detection Performance](docs/images/hoax_detection_table.png)
 
 **Out-of-Distribution (OOD) Evaluation:**
 
-| Test Type    | F1-Score | Notes                    |
-| ------------ | -------- | ------------------------ |
-| Standard     | 99.05%   | In-distribution test set |
-| Adversarial  | 97.44%   | Clickbait cues removed   |
-| Domain Shift | 92.3%    | Different news sources   |
+![Hoax Detection OOD Performance](docs/images/ood_evaluation_table.png)
 
 The adversarial test removes surface-level clickbait words (e.g., "VIRAL!", "AWAS!", "BAGIKAN") to ensure the model captures deeper semantic patterns, not just keyword triggers.
 
@@ -337,11 +327,7 @@ The adversarial test removes surface-level clickbait words (e.g., "VIRAL!", "AWA
 
 **ROUGE Scores on Komdigi Hoaks Dataset (n=560):**
 
-| Model                    | ROUGE-1             | ROUGE-2             | ROUGE-L             |
-| ------------------------ | ------------------- | ------------------- | ------------------- |
-| TextRank (TF-IDF)        | 0.3938 ± 0.27       | 0.3193 ± 0.31       | 0.3718 ± 0.28       |
-| LexRank (TF-IDF)         | 0.2789 ± 0.09\*     | 0.0856 ± 0.05\*     | 0.2098 ± 0.08\*     |
-| **Gemini (Abstractive)** | **0.4520 ± 0.10\*** | **0.3850 ± 0.07\*** | **0.4310 ± 0.09\*** |
+![Summarization Performance](docs/images/summarization_table.png)
 
 _\*Baseline values from initial experiments_
 
@@ -353,11 +339,7 @@ _All scores computed with Indonesian ROUGE (Sastrawi stemming)_
 
 **Hallucination Prevention:**
 
-| Mode                             | Verification Rate | Hallucination-Free |
-| :------------------------------- | :---------------: | :----------------: |
-| Extractive (TextRank)            |       94.8%       |       80.0%        |
-| Abstractive (unconstrained)      |      72.4%\*      |      61.3%\*       |
-| **Abstractive (KG-constrained)** |    **91.8%\***    |    **89.5%\***     |
+![Hallucination Prevention](docs/images/verification_table.png)
 
 _\*Abstractive values are comparisons from initial baselines. Extractive metrics are empirically verified on the current dataset._
 
@@ -562,9 +544,11 @@ GROQ_API_KEY=your_key
     - **Kokoro TTS**: Local text-to-speech for accessibility.
 
 # 3. Run web interface
+
 ```bash
 python -m src.web_app
 ```
+
 # Open http://localhost:5000
 
 # 4. CLI evaluation
