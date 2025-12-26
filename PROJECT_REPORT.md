@@ -308,11 +308,11 @@ The adversarial test removes surface-level clickbait words (e.g., "VIRAL!", "AWA
 
 **ROUGE Scores on Komdigi Hoaks Dataset (n=560):**
 
-| Model                 | ROUGE-1           | ROUGE-2           | ROUGE-L           |
-| --------------------- | ----------------- | ----------------- | ----------------- |
-| **TextRank (TF-IDF)** | **0.3938** ± 0.27 | **0.3193** ± 0.31 | **0.3718** ± 0.28 |
-| LexRank (TF-IDF)      | 0.2789 ± 0.09\*   | 0.0856 ± 0.05\*   | 0.2098 ± 0.08\*   |
-| Gemini (Abstractive)  | 0.4520 ± 0.10\*   | 0.3850 ± 0.07\*   | 0.4310 ± 0.09\*   |
+| Model                    | ROUGE-1             | ROUGE-2             | ROUGE-L             |
+| ------------------------ | ------------------- | ------------------- | ------------------- |
+| TextRank (TF-IDF)        | 0.3938 ± 0.27       | 0.3193 ± 0.31       | 0.3718 ± 0.28       |
+| LexRank (TF-IDF)         | 0.2789 ± 0.09\*     | 0.0856 ± 0.05\*     | 0.2098 ± 0.08\*     |
+| **Gemini (Abstractive)** | **0.4520 ± 0.10\*** | **0.3850 ± 0.07\*** | **0.4310 ± 0.09\*** |
 
 _\*Baseline values from initial experiments_
 
@@ -324,11 +324,11 @@ _All scores computed with Indonesian ROUGE (Sastrawi stemming)_
 
 **Hallucination Prevention:**
 
-| Mode                         | Verification Rate | Hallucination-Free |
-| :--------------------------- | :---------------: | :----------------: |
-| **Extractive (TextRank)**    |     **94.8%**     |     **80.0%**      |
-| Abstractive (unconstrained)  |      72.4%\*      |      61.3%\*       |
-| Abstractive (KG-constrained) |      91.8%\*      |      89.5%\*       |
+| Mode                             | Verification Rate | Hallucination-Free |
+| :------------------------------- | :---------------: | :----------------: |
+| Extractive (TextRank)            |       94.8%       |       80.0%        |
+| Abstractive (unconstrained)      |      72.4%\*      |      61.3%\*       |
+| **Abstractive (KG-constrained)** |    **91.8%\***    |    **89.5%\***     |
 
 _\*Abstractive values are comparisons from initial baselines. Extractive metrics are empirically verified on the current dataset._
 
