@@ -1211,11 +1211,49 @@ def summarize():
                     min_verification_rate=0.7
                 )
 
+                # === REORDERED: Web Search First ===
+                search_results = []
+                try:
+                    from src.models.gemini_summarizer import GeminiSummarizer
+                    from src.tools.enhanced_search import EnhancedSearcher
+                    
+                    llm = GeminiSummarizer()
+                    combined_text = ' '.join(filtered_docs)
+                    
+                    # Detect language and generate agentic search query
+                    searcher = EnhancedSearcher(max_results=5)
+                    detected_lang = searcher.detect_language(combined_text)
+                    search_region = 'id-id' if detected_lang == 'id' else 'wt-wt'
+                    
+                    # Generate language-aware search query using LLM
+                    search_query = llm.generate_search_query(combined_text[:1500], language=detected_lang)
+                    print(f"[Web Search] Query: {search_query} (lang={detected_lang}, region={search_region})")
+                    
+                    # Execute Search
+                    try:
+                        raw_results = searcher.search_sync(search_query, max_results=5, region=search_region)
+                        search_results = [
+                            {
+                                'title': r.title,
+                                'source': r.domain,
+                                'url': r.url,
+                                'snippet': r.snippet
+                            }
+                            for r in raw_results
+                        ]
+                        print(f"[Web Search] Found {len(search_results)} related sources")
+                    except Exception as se:
+                        print(f"[Web Search] Search error: {se}")
+
+                except Exception as e:
+                    print(f"[Web Search] Setup error: {e}")
+
                 sum_result = summarizer.summarize(
                     documents=filtered_docs,
                     mode=mode,
                     num_sentences=5,
-                    build_timeline=True
+                    build_timeline=True,
+                    external_context=search_results  # Pass search results here
                 )
 
                 result = {
@@ -1242,49 +1280,23 @@ def summarize():
                     }
                 }
                 
-                # Generate LLM trustworthiness analysis with web search grounding
+                # Generate independent trust analysis (UI "Trust Box")
                 try:
+                    # Re-init LLM if needed (or make sure it's available)
                     from src.models.gemini_summarizer import GeminiSummarizer
-                    from src.tools.enhanced_search import EnhancedSearcher
-                    
-                    llm = GeminiSummarizer()
-                    combined_text = ' '.join(filtered_docs)
-                    
-                    # Detect language and generate search query
-                    searcher = EnhancedSearcher(max_results=5)
-                    detected_lang = searcher.detect_language(combined_text)
-                    search_region = 'id-id' if detected_lang == 'id' else 'wt-wt'
-                    
-                    # Generate language-aware search query using LLM
-                    search_query = llm.generate_search_query(combined_text[:1500], language=detected_lang)
-                    print(f"[Web Search] Query: {search_query} (lang={detected_lang}, region={search_region})")
-                    
-                    # Search for related articles to corroborate claims
-                    search_results = []
-                    try:
-                        raw_results = searcher.search_sync(search_query, max_results=5, region=search_region)
-                        search_results = [
-                            {
-                                'title': r.title,
-                                'source': r.domain,
-                                'url': r.url,
-                                'snippet': r.snippet
-                            }
-                            for r in raw_results
-                        ]
-                        print(f"[Web Search] Found {len(search_results)} related sources")
-                    except Exception as se:
-                        print(f"[Web Search] Search error: {se}")
-                    
-                    # Verify article with web search context
+                    if 'llm' not in locals():
+                        llm = GeminiSummarizer()
+                        
                     trust_result = llm.verify_article(
                         title="Article Analysis",
-                        content=combined_text,
+                        content=' '.join(filtered_docs),
                         hoax_probability=doc_analysis[0].get('hoax_probability') if doc_analysis else None,
                         search_results=search_results
                     )
                     result['trust_analysis'] = trust_result
-                    result['corroboration_sources'] = search_results  # Add web search sources
+                    result['corroboration_sources'] = search_results
+                except Exception as e:
+                    print(f"[Trust Analysis] Error: {e}")
                     
                     # Override confidence with LLM verdict (more accurate for abstractive)
                     if trust_result and trust_result.get('verdict'):

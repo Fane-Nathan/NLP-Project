@@ -338,9 +338,10 @@ class ConstrainedSummarizer:
         self,
         documents: List[str],
         grounding_facts: List[KGTriple],
-        query: Optional[str] = None
+        query: Optional[str] = None,
+        external_context: Optional[List[Dict]] = None
     ) -> str:
-        """Generate abstractive summary with KG grounding."""
+        """Generate abstractive summary with KG grounding and external context."""
         gemini = self._get_gemini()
         
         if not gemini:
@@ -350,27 +351,36 @@ class ConstrainedSummarizer:
         # Build grounding context
         fact_context = self._build_fact_context(grounding_facts)
         
+        # Build external context (Web Search)
+        ext_context_str = ""
+        if external_context:
+            ext_context_str = "\nEXTERNAL CORROBORATION (Web Search):\n" + "\n".join([
+                f"- {item.get('title', '')}: {item.get('snippet', '')}" 
+                for item in external_context[:3]
+            ])
+        
         # Create constrained prompt - DIRECT summarization instruction
         grounded_prompt = f"""You are a news summarization assistant.
 
 TASK: Create a summary of the following documents.
 
 IMPORTANT RULES:
-1. Write the summary in the SAME LANGUAGE as the source documents
-2. ONLY use information present in the source documents
-3. Do not add information not in the source
-4. Do not change names, dates, or numbers
-5. Do not add commentary, analysis, or personal opinions
-6. Write the summary directly without introduction
+1. Write the summary in the SAME LANGUAGE as the source documents.
+2. Use the Verified Facts and External Corroboration to improve accuracy.
+3. If External Corroboration supports the text, mention that the information is verified.
+4. If there are contradictions, mention them explicitly.
+5. Do not change names, dates, or numbers unless corrected by verified facts.
 
 {fact_context if fact_context else ''}
+
+{ext_context_str}
 
 SOURCE DOCUMENTS:
 {chr(10).join([f"[{i+1}] {doc}" for i, doc in enumerate(documents[:5])])}
 
 {f'FOCUS: {query}' if query else ''}
 
-Write a 2-3 paragraph summary in the same language as the source:
+Write a professional, objective summary (2-3 paragraphs) in the same language as the source:
 """
 
         try:
@@ -452,7 +462,8 @@ RINGKASAN YANG DIPERBAIKI:"""
         mode: SummarizationMode = SummarizationMode.HYBRID,
         topic_entities: Optional[List[str]] = None,
         num_sentences: int = 5,
-        build_timeline: bool = True
+        build_timeline: bool = True,
+        external_context: Optional[List[Dict]] = None
     ) -> ConstrainedSummaryResult:
         """
         Generate a hallucination-free summary.
@@ -487,7 +498,7 @@ RINGKASAN YANG DIPERBAIKI:"""
         if mode == SummarizationMode.EXTRACTIVE:
             summary = self._generate_extractive(documents, num_sentences, "textrank")
         elif mode == SummarizationMode.ABSTRACTIVE:
-            summary = self._generate_abstractive(documents, grounding_facts, query)
+            summary = self._generate_abstractive(documents, grounding_facts, query, external_context)
         else:  # HYBRID
             # Start with extractive, then refine with LLM
             extractive = self._generate_extractive(documents, num_sentences * 2, "textrank")
@@ -497,7 +508,8 @@ RINGKASAN YANG DIPERBAIKI:"""
                 summary = self._generate_abstractive(
                     [extractive],  # Use extractive as input
                     grounding_facts,
-                    query
+                    query,
+                    external_context
                 )
             else:
                 summary = extractive
@@ -538,6 +550,13 @@ RINGKASAN YANG DIPERBAIKI:"""
             verification_report.verification_rate * 0.6 +
             verification_report.confidence * 0.4
         )
+        
+        # Add warning if confidence is low or verification failed
+        if confidence < 0.6 or verification_report.overall_status == VerificationStatus.UNVERIFIED:
+            warning_msg = "\n\n⚠️ **Note**: This summary reflects the article's claims, but our AI verification found inconsistencies or lack of external corroboration. Please verify with additional sources."
+            # Only add if not already present
+            if "⚠️" not in summary:
+                summary += warning_msg
         
         return ConstrainedSummaryResult(
             summary=summary,
