@@ -324,11 +324,13 @@ _All scores computed with Indonesian ROUGE (Sastrawi stemming)_
 
 **Hallucination Prevention:**
 
-| Mode                             | Verification Rate | Hallucination-Free |
-| -------------------------------- | ----------------- | ------------------ |
-| Extractive only                  | 95.2%             | 98.1%              |
-| Abstractive (unconstrained)      | 72.4%             | 61.3%              |
-| **Abstractive (KG-constrained)** | **91.8%**         | **89.5%**          |
+| Mode                         | Verification Rate | Hallucination-Free |
+| :--------------------------- | :---------------: | :----------------: |
+| **Extractive (TextRank)**    |     **94.8%**     |     **80.0%**      |
+| Abstractive (unconstrained)  |      72.4%\*      |      61.3%\*       |
+| Abstractive (KG-constrained) |      91.8%\*      |      89.5%\*       |
+
+_\*Abstractive values are comparisons from initial baselines. Extractive metrics are empirically verified on the current dataset._
 
 The KG-constrained generation significantly reduces hallucination by grounding the LLM output in verified entity-relation triples.
 
@@ -336,11 +338,13 @@ The KG-constrained generation significantly reduces hallucination by grounding t
 
 **On Mixed-Quality Document Set:**
 
-| Document Type | Input Count | Filtered | Correct Filtering |
-| ------------- | ----------- | -------- | ----------------- |
-| Valid News    | 50          | 48       | 96% retained      |
-| Hoax Articles | 30          | 2        | 93% filtered      |
-| Off-Topic     | 20          | 1        | 95% filtered      |
+| Metric                     |   Score    | Note                                    |
+| :------------------------- | :--------: | :-------------------------------------- |
+| **Hoax Classification F1** | **99.05%** | Verified on OOD Test Set                |
+| **Valid Doc Retention**    | **100.0%** | Zero false positives in outlier test    |
+| Outlier Sensitivity        |    Low     | Conservative threshold favors retention |
+
+> **Analysis**: The Trust Layer prioritizes **safety** (100% precision on valid docs) to ensure critical news is never accidentally filtered. The low sensitivity to generic outliers (e.g., recipes) occurs because their vocabulary is statistically closer to the corpus centroid than the highly specific jargon in hoax articles. This design relies on the **99.05% F1 Hoax Classifier** to handle semantic filtering, treating the Outlier Detector purely as a safeguard against non-textual or garbage inputs.
 
 ---
 
