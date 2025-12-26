@@ -318,6 +318,8 @@ _\*Baseline values from initial experiments_
 
 _All scores computed with Indonesian ROUGE (Sastrawi stemming)_
 
+> **Interpretation:** In text summarization, ROUGE scores are strict metrics based on n-gram overlap. State-of-the-art models for Indonesian summarization (e.g., on Liputan6 or XL-Sum datasets) typically achieve ROUGE-1 scores in the **0.35–0.45** range [4]. Our score of **0.3938** indicates that the TextRank model performs vigorously, effectively capturing the core information content comparable to supervised baselines, despite being an efficient unsupervised extractive method. TextRank achieves this competitive performance with significantly lower latency compared to the Oracle (LLM) approach.
+
 #### 4.2.3 Knowledge Graph Verification
 
 **Hallucination Prevention:**
