@@ -37,4 +37,4 @@ EXPOSE 8080
 
 # Command to run the application using Gunicorn
 # Adjust workers based on core count (2-4 usually good)
-CMD exec gunicorn --bind :$PORT --workers 2 --threads 8 --timeout 0 src.web_workspace:app
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 src.web_app:app
