@@ -18,7 +18,6 @@ from typing import Optional, List, Dict
 
 app = Flask(__name__)
 
-# HTML Template - Enhanced Brutalist Design
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="en">
