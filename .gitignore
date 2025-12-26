@@ -65,6 +65,21 @@ build/
 freeze_output.txt
 files.txt
 bandit_low.json
+.bandit
+
+# Temp scripts (not part of core project)
+KOKORO_VOICE_GUIDE.py
+create_short_prompt.py
+prepare_and_train.py
+test_priority3.py
+test_textrank_modes.py
+verify_env.py
+start_assistant.bat
+start_assistant.ps1
+
+# Presentation files
+Presentation_Script*.docx
+*.pptx
 
 # Delivery/Submission folders
 delivery/
