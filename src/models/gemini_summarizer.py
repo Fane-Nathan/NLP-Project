@@ -528,37 +528,66 @@ Go ahead:"""
             print(f"[GeminiSummarizer] Vision Error: {e}")
             return None
 
-    def generate_search_query(self, text: str) -> str:
+    def generate_search_query(self, text: str, language: str = 'auto') -> str:
         """
         Generate a targeted search query to verify claims in the text.
+        Uses AI-agent approach for smarter, more relevant queries.
         
         Args:
             text: The input text containing claims.
+            language: 'id' for Indonesian, 'en' for English, 'auto' to detect.
             
         Returns:
-            A optimized search query string.
+            An optimized search query string.
         """
-        prompt = f"""You are an expert fact-checker.
+        # Auto-detect language if needed
+        if language == 'auto':
+            id_keywords = {'yang', 'dan', 'di', 'untuk', 'dengan', 'pada', 'ini', 'adalah'}
+            words = set(text.lower().split()[:50])
+            language = 'id' if len(words & id_keywords) >= 4 else 'en'
         
-TASK: Formulate a single, powerful search query to verify the main claim in the following text.
+        if language == 'id':
+            # Indonesian: focus on local entities and news
+            prompt = f"""Anda adalah agen peneliti fakta Indonesia.
 
-TEXT:
-"{text[:1000]}"
+TUGAS: Buat query pencarian untuk memverifikasi klaim utama dalam teks berikut.
 
-GUIDELINES:
-1. Identify the core factual claim (who, what, when, where).
-2. Remove specific numbers if they might be slightly off (use keywords instead).
-3. Include key entities and action verbs.
-4. Return ONLY the query string. No quotes, no explanations.
+TEKS:
+"{text[:1500]}"
+
+PANDUAN:
+1. Identifikasi KLAIM UTAMA (siapa, apa, kapan, dimana).
+2. Sertakan nama ENTITAS SPESIFIK (orang, organisasi, tempat, program).
+3. Gunakan kata kunci bahasa Indonesia yang tepat.
+4. Kembalikan HANYA query string. Tanpa tanda kutip, tanpa penjelasan.
+
+QUERY:"""
+        else:
+            # English: focus on credible sources
+            prompt = f"""You are a fact-checking research agent.
+
+TASK: Generate a precise search query to verify the main claim in this article.
+
+ARTICLE:
+"{text[:1500]}"
+
+REQUIREMENTS:
+1. Extract the PRIMARY claim (who, what, when, where).
+2. Include SPECIFIC entity names (people, organizations, locations).
+3. Include dates or time references if mentioned.
+4. Add credible source hints: site:reuters.com OR site:bbc.com OR site:apnews.com
+5. Return ONLY the query string. No quotes, no explanations.
 
 QUERY:"""
 
         try:
             result = self._call_llm(prompt)
-            return result.strip().strip('"')
+            query = result.strip().strip('"').strip("'")
+            print(f"[GeminiSummarizer] Generated query ({language}): {query[:80]}...")
+            return query
         except Exception as e:
             print(f"[GeminiSummarizer] Query Generation Error: {e}")
-            # Fallback to simple keyword extraction or first sentence
+            # Fallback: extract first meaningful sentence
             return text.split('\n')[0][:100]
 
     def describe_image(

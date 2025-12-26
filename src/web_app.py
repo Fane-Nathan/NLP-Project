@@ -1250,15 +1250,19 @@ def summarize():
                     llm = GeminiSummarizer()
                     combined_text = ' '.join(filtered_docs)
                     
-                    # Generate search query from article content
-                    search_query = llm.generate_search_query(combined_text[:1000])
-                    print(f"[Web Search] Query: {search_query}")
+                    # Detect language and generate search query
+                    searcher = EnhancedSearcher(max_results=5)
+                    detected_lang = searcher.detect_language(combined_text)
+                    search_region = 'id-id' if detected_lang == 'id' else 'wt-wt'
+                    
+                    # Generate language-aware search query using LLM
+                    search_query = llm.generate_search_query(combined_text[:1500], language=detected_lang)
+                    print(f"[Web Search] Query: {search_query} (lang={detected_lang}, region={search_region})")
                     
                     # Search for related articles to corroborate claims
                     search_results = []
                     try:
-                        searcher = EnhancedSearcher(max_results=5)
-                        raw_results = searcher.search_sync(search_query, max_results=5)
+                        raw_results = searcher.search_sync(search_query, max_results=5, region=search_region)
                         search_results = [
                             {
                                 'title': r.title,
@@ -1346,18 +1350,22 @@ def _basic_summarize(documents: list, model: str, input_doc_count: int, doc_anal
 
     # Generate LLM trustworthiness analysis with web search grounding
     trust_analysis = None
+    search_results = []
     try:
         from src.models.gemini_summarizer import GeminiSummarizer
         from src.tools.enhanced_search import EnhancedSearcher
         
         llm = GeminiSummarizer()
+        searcher = EnhancedSearcher(max_results=5)
         
-        # Generate search query and find related sources
-        search_query = llm.generate_search_query(combined_text[:1000])
-        search_results = []
+        # Detect language and generate agentic search query
+        detected_lang = searcher.detect_language(combined_text)
+        search_region = 'id-id' if detected_lang == 'id' else 'wt-wt'
+        search_query = llm.generate_search_query(combined_text[:1500], language=detected_lang)
+        print(f"[Web Search] Query: {search_query} (lang={detected_lang}, region={search_region})")
+        
         try:
-            searcher = EnhancedSearcher(max_results=5)
-            raw_results = searcher.search_sync(search_query, max_results=5)
+            raw_results = searcher.search_sync(search_query, max_results=5, region=search_region)
             search_results = [
                 {'title': r.title, 'source': r.domain, 'url': r.url, 'snippet': r.snippet}
                 for r in raw_results

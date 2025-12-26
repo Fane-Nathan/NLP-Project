@@ -93,13 +93,36 @@ class EnhancedSearcher:
         except:
             return ""
     
-    def search(self, query: str, timelimit: Optional[str] = None) -> List[Dict]:
+    def detect_language(self, text: str) -> str:
+        """
+        Detect if text is Indonesian or English.
+        
+        Args:
+            text: Input text to analyze.
+            
+        Returns:
+            'id' for Indonesian, 'en' for English/other.
+        """
+        # Indonesian common function words
+        id_keywords = {'yang', 'dan', 'di', 'untuk', 'dengan', 'pada', 'ini', 'itu', 
+                      'adalah', 'akan', 'dari', 'ke', 'tidak', 'juga', 'sudah',
+                      'bisa', 'lebih', 'tersebut', 'dalam', 'oleh', 'bahwa'}
+        
+        # Take first 100 words
+        words = set(text.lower().split()[:100])
+        id_count = len(words & id_keywords)
+        
+        # If 5+ Indonesian keywords found, classify as Indonesian
+        return 'id' if id_count >= 5 else 'en'
+    
+    def search(self, query: str, timelimit: Optional[str] = None, region: Optional[str] = None) -> List[Dict]:
         """
         Search using DuckDuckGo (synchronous).
         
         Args:
             query: Search query.
             timelimit: 'd' (day), 'w' (week), 'm' (month), or None.
+            region: Region code ('id-id' for Indonesia, 'wt-wt' for worldwide).
             
         Returns:
             List of search result dicts.
@@ -108,14 +131,16 @@ class EnhancedSearcher:
             print("[EnhancedSearcher] DDGS not available")
             return []
         
-        print(f"[EnhancedSearcher] Searching: {query[:60]}...")
+        # Default to worldwide if no region specified
+        search_region = region if region else 'wt-wt'
+        print(f"[EnhancedSearcher] Searching: {query[:60]}... (region={search_region})")
         results = []
         
         try:
             with DDGS() as ddgs:
                 raw_results = ddgs.text(
                     query,
-                    region='wt-wt',
+                    region=search_region,
                     safesearch='moderate',
                     timelimit=timelimit,
                     max_results=self.max_results
@@ -139,7 +164,7 @@ class EnhancedSearcher:
         print(f"[EnhancedSearcher] Found {len(results)} results")
         return results
 
-    def search_sync(self, query: str, max_results: int = 5) -> List[SearchResult]:
+    def search_sync(self, query: str, max_results: int = 5, region: Optional[str] = None) -> List[SearchResult]:
         """
         Search and return SearchResult objects (synchronous).
 
@@ -147,10 +172,12 @@ class EnhancedSearcher:
             query: Search query.
             max_results: Maximum number of results.
 
+            region: Region code ('id-id' for Indonesia, 'wt-wt' for worldwide).
+
         Returns:
             List of SearchResult objects.
         """
-        raw_results = self.search(query)
+        raw_results = self.search(query, region=region)
         results = []
         for r in raw_results[:max_results]:
             results.append(SearchResult(
