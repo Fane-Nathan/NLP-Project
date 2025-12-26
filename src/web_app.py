@@ -1281,6 +1281,7 @@ def summarize():
                 }
                 
                 # Generate independent trust analysis (UI "Trust Box")
+                trust_result = None
                 try:
                     # Re-init LLM if needed (or make sure it's available)
                     from src.models.gemini_summarizer import GeminiSummarizer
@@ -1298,22 +1299,17 @@ def summarize():
                 except Exception as e:
                     print(f"[Trust Analysis] Error: {e}")
                     
-                    # Override confidence with LLM verdict (more accurate for abstractive)
-                    if trust_result and trust_result.get('verdict'):
-                        verdict_confidence = {
-                            'TRUSTABLE': 0.85,
-                            'UNCERTAIN': 0.50,
-                            'NOT TRUSTABLE': 0.15
-                        }
-                        result['metrics']['confidence'] = verdict_confidence.get(
-                            trust_result['verdict'], 0.50
-                        )
-                        result['metrics']['hallucination_free'] = trust_result['verdict'] == 'TRUSTABLE'
-                        
-                except Exception as e:
-                    print(f"Trust analysis error: {e}")
-                    result['trust_analysis'] = None
-                    result['corroboration_sources'] = []
+                # Override confidence with LLM verdict (more accurate for abstractive)
+                if trust_result and trust_result.get('verdict'):
+                    verdict_confidence = {
+                        'TRUSTABLE': 0.85,
+                        'UNCERTAIN': 0.50,
+                        'NOT TRUSTABLE': 0.15
+                    }
+                    result['metrics']['confidence'] = verdict_confidence.get(
+                        trust_result['verdict'], 0.50
+                    )
+                    result['metrics']['hallucination_free'] = trust_result['verdict'] == 'TRUSTABLE'
                     
             except ImportError:
                 result = _basic_summarize(filtered_docs, model, input_doc_count, doc_analysis)
