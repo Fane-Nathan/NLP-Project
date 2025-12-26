@@ -1,84 +1,103 @@
-# Echo Voice Assistant 🤖🔊
+# TDSM - Trust-Driven Summarization Model
 
-A powerful, local AI assistant capable of screen analysis and ultra-fast, high-quality voice interaction using **Kokoro TTS**.
+**Indonesian Multi-Document Summarization with Knowledge Graph Verification**
 
-## 🚀 Features
+A comprehensive NLP system for summarizing Indonesian news articles with built-in hoax detection, knowledge graph verification, and web search corroboration.
 
-- **Ultra-Fast Local TTS:** Uses **Kokoro-82M** (#1 ranked model) for high-quality speech with ~0.27x Real-Time Factor (4x faster than real-time).
-- **Screen Intelligence:** Captures and summarizes screen content using Vision LLMs (Groq) and OCR.
-- **Voice Personas:**
-  - **Friday:** Warm, expressive female voice (`af_heart` - US Heart ❤️)
-  - **Echo:** Authoritative male voice (`am_adam`)
-- **Hotkeys:** Global keyboard shortcuts for instant interaction.
-- **Privacy Focused:** Runs TTS locally on your machine.
+---
 
-## 🛠️ Requirements
+## 🚀 Quick Start
 
-- **Python 3.11** (Required for Kokoro compatibility)
-- **GPU:** NVIDIA GPU recommended (runs on GTX 1650 with ~500MB VRAM usage)
-- **OS:** Windows (tested), Linux, MacOS
-
-## 📦 Installation
-
-1. **Clone the repository:**
-   ```bash
-   git clone <repository-url>
-   cd echo-assistant
-   ```
-
-2. **Create a Python 3.11 environment:**
-   ```bash
-   py -3.11 -m venv venv
-   .\venv\Scripts\activate
-   ```
-
-3. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-   *Note: This installs PyTorch (CUDA 12.1), Kokoro, and other required packages.*
-
-4. **Download Models:**
-   - Kokoro models will automatically download on the first run (~350MB).
-
-## 🎮 Usage
-
-Run the assistant:
 ```bash
-python src/assistant.py
+# 1. Clone and setup
+git clone <repository-url>
+cd NLP-Project
+py -3.11 -m venv venv
+.\venv\Scripts\activate
+pip install -r requirements.txt
+playwright install chromium
+
+# 2. Configure API keys (create .env file)
+# GEMINI_API_KEY=your_key
+# GROQ_API_KEY=your_key
+
+# 3. Run web interface
+python -m src.web_app
+# Open http://localhost:5000
 ```
 
-### Hotkeys
-| Shortcut | Action |
-|----------|--------|
-| **Ctrl+Alt+S** | **Summarize Screen** - Analyzes current window content |
-| **Ctrl+Alt+D** | **Describe Screen** - Detailed visual description |
-| **Ctrl+Alt+V** | **Toggle Voice** - Switch between Friday and Echo |
-| **Esc** | **Exit** - Shutdown the assistant |
+---
 
-## 📂 Project Structure
+## ✨ Key Features
 
+| Feature                       | Description                                                         |
+| ----------------------------- | ------------------------------------------------------------------- |
+| **Trust Layer**               | Filters unreliable sources using IndoBERT hoax detection (99.5% F1) |
+| **Knowledge Graph**           | Extracts entities, relations, and temporal anchors from documents   |
+| **Constrained Summarization** | Hybrid extractive-abstractive with KG grounding                     |
+| **Web Corroboration**         | Searches external sources to verify article claims                  |
+| **Multi-Model Support**       | TextRank, LexRank, Gemini LLM, and Hybrid modes                     |
+| **Voice Assistant**           | Optional Kokoro TTS for voice-enabled interaction                   |
+
+---
+
+## 🎯 Three Ways to Run
+
+### 1. Web Interface (Recommended)
+
+```bash
+python -m src.web_app
 ```
-├── src/
-│   ├── assistant.py       # Main entry point & logic
-│   ├── voice_kokoro.py    # Kokoro TTS wrapper (The Voice)
-│   ├── screen_capture.py  # MSS screen capture logic
-│   ├── ocr_engine.py      # Tesseract OCR wrapper
-│   ├── monitor.py         # Active window monitoring
-│   └── models/            # LLM handlers
-├── requirements.txt       # Project dependencies
-└── README.md              # This file
+
+Interactive UI at http://localhost:5000 with URL fetching, live summarization, and trust analysis.
+
+### 2. Command-Line
+
+```bash
+python -m src.main --mode full --model hybrid --credibility --verify
 ```
 
-## ⚙️ Configuration
+### 3. Voice Assistant
 
-### Voice Settings
-Edit `src/voice_kokoro.py` to tweak:
-- **Volume:** `self.volume = 1.5` (Default: 1.5x boost)
-- **Speed:** `self.speed = 1.0` (0.5 - 2.0)
-- **Voices:** Change default voices in `self.voices` dict.
+```bash
+python -m src.assistant
+```
 
-## 🏆 Credits
+Use hotkeys: `Ctrl+Alt+S` (Summarize), `Ctrl+Alt+H` (Hoax Check), `Esc` (Exit)
 
-- **Kokoro TTS:** [hexgrad/kokoro](https://huggingface.co/hexgrad/Kokoro-82M) - The amazing TTS model powering this project.
+---
+
+## 📋 Requirements
+
+- **Python 3.11** (required for Kokoro TTS)
+- **API Keys**: Gemini + Groq (see [GUIDE_BOOK.md](GUIDE_BOOK.md))
+- **GPU**: NVIDIA recommended (~500MB VRAM)
+
+---
+
+## 📚 Documentation
+
+| Document                                     | Purpose                                         |
+| -------------------------------------------- | ----------------------------------------------- |
+| [GUIDE_BOOK.md](GUIDE_BOOK.md)               | Detailed installation, usage, and CLI reference |
+| [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) | Complete file/folder explanation                |
+
+---
+
+## 🔬 Technical Stack
+
+- **NLP**: spaCy, NLTK, Sastrawi (Indonesian stemmer)
+- **ML**: PyTorch, Transformers, IndoBERT
+- **LLM**: Groq (Llama 3.3), Gemini 2.0
+- **Web**: Flask, Crawl4AI, DuckDuckGo Search
+- **TTS**: Kokoro-82M (local, ultra-fast)
+
+---
+
+## 📧 Authors
+
+- Felix Nathaniel
+
+---
+
+_TDSM v1.0 - Trust-Driven Summarization Model with Knowledge Graph Verification_
