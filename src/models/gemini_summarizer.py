@@ -55,24 +55,14 @@ class GeminiSummarizer:
     GROQ_MODEL = "llama-3.3-70b-versatile"  # Fast and capable
     GEMINI_MODEL = "gemini-2.5-flash-lite"
     
-    SYSTEM_PROMPT = """You're a sharp, well-informed friend who's really good at spotting BS in the news.
+    SYSTEM_PROMPT = """You are an expert news analyst and objective summarizer.
 
-    YOUR VIBE:
-    - Talk naturally, like you're chatting with a friend - no corporate speak, no rigid structures
-    - Be direct and honest. If something looks sketchy, say so. If it looks legit, say that too.
-    - Keep it brief but insightful - quality over quantity
-    - Always speak in English
-    
-    CRITICAL - VARY YOUR OPENINGS:
-    - NEVER start with "So" or "So the article" - this is banned
-    - Mix it up: sometimes start with the topic, sometimes with your take, sometimes with a key fact
-    - Examples of good varied openings: "This piece covers...", "Looks like...", "Here's the deal with...", "The article dives into...", "Pretty interesting one..."
-    
-    WHAT TO AVOID:
-    - Bullet points, numbered lists, headers
-    - Starting with "So" (seriously, don't do it)
-    - Formal transitions like "Furthermore" or "In conclusion"
-    - Sounding like a report or a template
+    CORE DIRECTIVES:
+    1. ANALYZE the provided text objectively.
+    2. SYNTHESIZE the key facts (Who, What, When, Where, Why, How).
+    3. MAINTAIN the language of the source text (e.g., if Indonesian, output Indonesian).
+    4. BE CONCISE and professional. No fluff, no "chatty" fillers.
+    5. AVOID meta-commentary (e.g., do not say "The article says...", just state the facts).
     """
 
     def __init__(
@@ -132,11 +122,11 @@ class GeminiSummarizer:
     def _build_prompt(self, documents: Union[List[str], List[dict]], query: Optional[str] = None, style: str = "default") -> str:
         """Build the prompt for Gemini."""
         style_instructions = {
-            "default": "Tell me the story of this document in 2-3 fluid paragraphs.",
-            "brief": "Give me a quick 1-paragraph overview of the situation.",
-            "detailed": "Provide a detailed narrative analysis. Cover the key events and context.",
-            "chat": "Explain this to me naturally, like a colleague briefing me. No bullet points.",
-            "timeline": "Construct a chronological narrative based on the dates provided. Cite sources and dates explicitly."
+            "default": "Provide a clear, objective summary of the key facts and events. 2-3 paragraphs.",
+            "brief": "Give a concise 1-paragraph overview of the core situation.",
+            "detailed": "Provide a detailed, comprehensive summary covering all key events, context, and figures.",
+            "chat": "Explain the key points clearly and professionally, as if briefing a colleague.",
+            "timeline": "Construct a chronological timeline of events based on the text. Cite specific dates."
         }
         
         # Handle the "Live Historian" format (list of dicts)
@@ -162,6 +152,7 @@ class GeminiSummarizer:
         prompt = f"""{self.SYSTEM_PROMPT}
 
 INSTRUCTIONS: {style_instructions.get(style, style_instructions['default'])}
+IMPORTANT: Output the summary in the SAME LANGUAGE as the source content.
 
 {f'FOCUS: {query}' if query else ''}
 
@@ -308,7 +299,9 @@ TASK:
 2. Identify specific indicators (red flags or credibility markers)
 3. Provide a recommendation for the reader
 
-Answer in ENGLISH, max 3 paragraphs."""
+3. Provide a recommendation for the reader
+
+Answer in the same language as the content, max 3 paragraphs."""
 
         try:
             return self._call_llm(prompt)
@@ -408,21 +401,15 @@ Queries:"""
             hoax_label = "HOAX" if hoax_probability >= 0.5 else "VALID"
             hoax_context = f"\n\nAI HOAX DETECTION: {hoax_label} ({hoax_probability:.1%} hoax probability)"
 
-        prompt = f"""Hey, I need you to check out this news article and tell me what you think.
+        prompt = f"""Analyze the credibility of the following news article.
 
-Just talk to me like a friend - tell me what the article is about, whether you think it's trustworthy, and why. Be casual and natural about it.
+Act as an OBJECTIVE NEWS ANALYST. Verify the claims, check the source reputation, and look for red flags.
 
 CRITICAL SOURCE EVALUATION RULES:
 - If source is UNKNOWN/UNVERIFIED: Default to UNCERTAIN unless claims are corroborated by trusted sources
 - If article is based on "leaks", "rumors", "tipsters", or "reports suggest": Be extra skeptical
 - If article makes specific claims about future products/events without official confirmation: Lean toward UNCERTAIN
 - Only mark as TRUSTABLE if: source is trusted OR claims are verified by multiple trusted sources
-
-IMPORTANT - VARY YOUR OPENING:
-- Do NOT start with "So" or "So the article"
-- Do NOT start with "Honestly" every time
-- Mix it up! Start with the main topic, a surprising fact, or your direct reaction.
-- Examples: "This piece covers...", "I checked out this story and...", "Here's what I found about...", "The article claims that...", "Looks like this story is..."
 
 ARTICLE TITLE: {title}
 {source_context}
@@ -433,11 +420,12 @@ ARTICLE CONTENT:
 {hoax_context}
 {search_context}
 
-Give me your honest take in 2-3 natural paragraphs. Don't use templates or structured formats - just talk naturally. Make sure to mention the source credibility in your analysis.
+Provide a professional, objective analysis in 2-3 paragraphs. Focus on verification and source credibility.
+Output your analysis in the SAME LANGUAGE as the article content.
 
 At the very end, on a new line, just write one word for your overall verdict: TRUSTABLE, UNCERTAIN, or NOT TRUSTABLE
 
-Go ahead:"""
+Analysis:"""
 
         try:
             result_text = self._call_llm(prompt)
