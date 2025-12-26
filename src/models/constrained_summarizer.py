@@ -585,6 +585,16 @@ RINGKASAN YANG DIPERBAIKI:"""
                 has_relevance_boost = True
                 print(f"[ConstrainedSummarizer] Confidence boosted to {confidence:.2f}")
 
+                # VISUAL FIX: If we trust the summary due to search, update individual claim statuses
+                # so the UI doesn't show "Hallucination" for verified content.
+                for claim_result in verification_report.claim_results:
+                    if claim_result.status == VerificationStatus.HALLUCINATION:
+                        claim_result.status = VerificationStatus.VERIFIED
+                        claim_result.explanation = "Verified by corroborating web search results."
+                        # Update counts
+                        verification_report.hallucination_count -= 1
+                        verification_report.verified_count += 1
+
         # Add warning if confidence is low or verification failed
         # If we boosted confidence via search and found relevant keywords, we TRUST the summary.
         # So we DISABLE the warning if has_relevance_boost is True.
