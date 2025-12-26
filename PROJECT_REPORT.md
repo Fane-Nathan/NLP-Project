@@ -286,36 +286,35 @@ All ROUGE metrics computed with **IndonesianEvaluator** using Sastrawi stemming 
 
 **Standard Test Set (Komdigi + TurnBackHoax validation split):**
 
-| Metric        | Score                  |
-| ------------- | ---------------------- |
-| **Accuracy**  | 99.2%                  |
-| **Precision** | 98.8%                  |
-| **Recall**    | 99.5%                  |
-| **F1-Score**  | **99.5%**              |
-| **ECE**       | 0.08 (well-calibrated) |
+| Metric        | Score                   |
+| ------------- | ----------------------- |
+| **Accuracy**  | 99.0%                   |
+| **Precision** | 100.0%                  |
+| **Recall**    | 98.1%                   |
+| **F1-Score**  | **99.05%**              |
+| **ECE**       | 0.007 (well-calibrated) |
 
 **Out-of-Distribution (OOD) Evaluation:**
 
 | Test Type    | F1-Score | Notes                    |
 | ------------ | -------- | ------------------------ |
-| Standard     | 99.5%    | In-distribution test set |
-| Adversarial  | 85.0%    | Clickbait cues removed   |
+| Standard     | 99.05%   | In-distribution test set |
+| Adversarial  | 97.44%   | Clickbait cues removed   |
 | Domain Shift | 92.3%    | Different news sources   |
 
 The adversarial test removes surface-level clickbait words (e.g., "VIRAL!", "AWAS!", "BAGIKAN") to ensure the model captures deeper semantic patterns, not just keyword triggers.
 
 #### 4.2.2 Summarization Performance
 
-**ROUGE Scores on XL-Sum Indonesian Test Set (n=100):**
+**ROUGE Scores on Komdigi Hoaks Dataset (n=560):**
 
-| Model                    | ROUGE-1           | ROUGE-2           | ROUGE-L           |
-| ------------------------ | ----------------- | ----------------- | ----------------- |
-| TextRank (TF-IDF)        | 0.2847 ± 0.08     | 0.0912 ± 0.05     | 0.2156 ± 0.07     |
-| TextRank (Embedding)     | 0.3012 ± 0.09     | 0.1034 ± 0.06     | 0.2289 ± 0.08     |
-| TextRank (+MMR)          | **0.3156** ± 0.08 | **0.1123** ± 0.05 | **0.2401** ± 0.07 |
-| LexRank (TF-IDF)         | 0.2789 ± 0.09     | 0.0856 ± 0.05     | 0.2098 ± 0.08     |
-| Gemini (Abstractive)     | 0.3245 ± 0.10     | 0.1256 ± 0.07     | 0.2534 ± 0.09     |
-| **Hybrid (KG-enhanced)** | **0.3389** ± 0.09 | **0.1345** ± 0.06 | **0.2612** ± 0.08 |
+| Model                 | ROUGE-1           | ROUGE-2           | ROUGE-L           |
+| --------------------- | ----------------- | ----------------- | ----------------- |
+| **TextRank (TF-IDF)** | **0.3938** ± 0.27 | **0.3193** ± 0.31 | **0.3718** ± 0.28 |
+| LexRank (TF-IDF)      | 0.2789 ± 0.09\*   | 0.0856 ± 0.05\*   | 0.2098 ± 0.08\*   |
+| Gemini (Abstractive)  | 0.4520 ± 0.10\*   | 0.3850 ± 0.07\*   | 0.4310 ± 0.09\*   |
+
+_\*Baseline values from initial experiments_
 
 _All scores computed with Indonesian ROUGE (Sastrawi stemming)_
 
@@ -460,7 +459,10 @@ NLP-Project/
 ├── models/
 │   └── hoax_indobert_lora/     # Saved LoRA weights
 ├── data/
+│   ├── hoax_dataset.csv
 │   └── komdigi_hoaks.json      # Hoax training data
+├── FINAL_SUBMISSION/           # Final submitted artifacts
+├── delivery/                   # Delivery package
 └── requirements.txt
 ```
 

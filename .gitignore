@@ -20,6 +20,8 @@ client_secrets.json
 
 # Data & Large Files (>100MB usually, but ignoring all data/models for safety)
 data/
+!data/komdigi_hoaks.json
+!data/ultimate_dataset.csv
 data_cache/
 checkpoints/
 models/

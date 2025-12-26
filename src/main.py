@@ -457,8 +457,8 @@ def main():
         rougel_scores = []
 
         for i, item in enumerate(dataset):
-            text = item.get('text', item.get('content', item.get('article', '')))
-            ref_summary = item.get('summary', item.get('gold_summary', ''))
+            text = item.get('text', item.get('content', item.get('article', item.get('body_text', ''))))
+            ref_summary = item.get('summary', item.get('gold_summary', item.get('excerpt', '')))
 
             if not text or not ref_summary:
                 continue
