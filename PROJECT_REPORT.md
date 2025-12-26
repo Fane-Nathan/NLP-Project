@@ -426,7 +426,7 @@ The 20+ percentage point improvement in hallucination-free rate (61.3% → 89.5%
 **ROUGE vs. Faithfulness Trade-off:**
 Interestingly, KG-constrained summaries achieve slightly higher ROUGE scores than unconstrained abstractive, suggesting that factual grounding helps maintain relevance to source documents.
 
-### 5.4 Trade-offs
+### 6.2 Trade-offs
 
 | Approach                  | Pros                          | Cons                       |
 | ------------------------- | ----------------------------- | -------------------------- |
@@ -434,7 +434,7 @@ Interestingly, KG-constrained summaries achieve slightly higher ROUGE scores tha
 | Neural extraction         | Richer semantics              | Prone to hallucination     |
 | **Hybrid (our approach)** | Balanced accuracy/coverage    | Additional complexity      |
 
-### 5.5 Ethical Considerations
+### 6.3 Ethical Considerations
 
 - **Bias in training data:** Hoax datasets may over-represent certain political topics
 - **False positives:** Legitimate controversial opinions may be flagged
