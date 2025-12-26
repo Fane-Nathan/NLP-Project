@@ -396,7 +396,7 @@ During the development of TDSM, we encountered several critical technical hurdle
 ### 5.3 The Verification Paradox
 
 **Problem:** High-quality summaries that correctly included new, external facts (e.g., "Event scheduled for 2026") were flagged as "Hallucinations" with low confidence (8%).
-**Root Cause:** The Knowledge Graph (KG) was constructed _only_ from the input document. From the KG's perspective, any fact _not_ in the input text—even if true and found via web search—was a hallucination.
+**Root Cause:** The Knowledge Graph (KG) was constructed _only_ from the input document. From the KG's perspective, any fact _not_ in the input text, even if true and found via web search, was a hallucination.
 **Solution:** We implemented **Knowledge Injection**. We modified the `ConstrainedSummarizer` to feed the `Crawl4AI` search snippets into the KG construction pipeline. This forces the Verifier to treat supported external facts as "Ground Truth," resolving the paradox.
 
 ### 5.4 Visual Confidence Contradiction
