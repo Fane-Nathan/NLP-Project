@@ -562,15 +562,13 @@ GROQ_API_KEY=your_key
     - **Kokoro TTS**: Local text-to-speech for accessibility.
 
 # 3. Run web interface
-
+```bash
 python -m src.web_app
-
+```
 # Open http://localhost:5000
 
 # 4. CLI evaluation
 
+```bash
 python -m src.main --mode evaluate --model textrank --num_samples 100 --indo_rouge
-
-```
-
 ```
