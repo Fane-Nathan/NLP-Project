@@ -23,6 +23,7 @@ data/
 data_cache/
 checkpoints/
 models/
+!models/hoax_indobert_lora/
 kokoro/
 *.pth
 *.pt
@@ -31,6 +32,7 @@ kokoro/
 *.h5
 *.gguf
 *.safetensors
+!models/hoax_indobert_lora/*.safetensors
 *.wav
 *.mp3
 
@@ -52,8 +54,8 @@ Thumbs.db
 *.log
 
 # Training logs
-runs/
-wandb/
+!runs/
+!wandb/
 
 # Cache & Temp files
 .coverage
