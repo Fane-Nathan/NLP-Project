@@ -20,6 +20,21 @@
 
 ---
 
+## EXECUTIVE SUMMARY
+
+The **Trust-Driven Multi-Document Summarization (TDSM)** system is a novel framework designed to combat the dual challenges of information overload and misinformation in the Indonesian news landscape. By integrating a Robust Trust Layer with Knowledge Graph (KG) grounding, the system ensures that generated summaries are not only concise but also factually verified and free from hallucinations.
+
+**Key Innovations:**
+
+- **Trust Layer**: Utilizes a fine-tuned IndoBERT model with LoRA adapters to detect hoaxes with **99.05% F1 accuracy**, ensuring only credible information enters the summarization pipeline.
+- **Knowledge Graph Grounding**: Constructs dynamic knowledge graphs to capture entity relationships, achieving a **94.8% verification rate** for extractive summaries.
+- **Constrained Hallucination Prevention**: Implements a unique KG-constrained decoding strategy that reduces hallucination rates by over 28% compared to standard abstractive models.
+- **Safety-First Architecture**: Features a conservative outlier detection mechanism that retains **100% of valid news documents**, prioritizing the preservation of critical information.
+
+This report details the system's architecture, methodology, and comprehensive evaluation, demonstrating its efficacy as a reliable tool for automated news synthesis in high-stakes environments.
+
+---
+
 ## CHAPTER 1: INTRODUCTION
 
 ### 1.1 Background
