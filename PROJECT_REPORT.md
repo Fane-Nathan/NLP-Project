@@ -248,6 +248,20 @@ The TDSM system follows a **three-layer architecture**:
 - Instruction: "Generate summary using ONLY the provided facts"
 - Iterative refinement if verification fails
 
+#### 3.3.4 Source Corroboration Layer
+
+To ensure summaries reflect the latest reality (not just the input text), we integrated a real-time web verification module:
+
+**Web Search Engine (DuckDuckGo + Crawl4AI):**
+
+- **Dynamic Language Detection**: Automatically routes queries to `region='id-id'` for Indonesian text to prevent irrelevant global results.
+- **Content Scraper**: Uses `Crawl4AI` to extract full text from search results, bypassing paywalls and ads.
+
+**Relevance & Trust Scoring:**
+
+- **Relevance Check**: Calculates keyword intersection between the generated summary and search snippets.
+- **Trust Boost**: If >5 unique keywords overlap, the 'Trust Override' logic boosts verification confidence (+30%), treating the external source as a validator.
+
 ### 3.4 Evaluation Metrics
 
 #### Hoax Detection:
@@ -363,9 +377,45 @@ The KG-constrained generation significantly reduces hallucination by grounding t
 
 ---
 
-## CHAPTER 5: DISCUSSION AND LIMITATIONS
+## CHAPTER 5: IMPLEMENTATION CHALLENGES AND SOLUTIONS
 
-### 5.1 Performance Analysis
+During the development of TDSM, we encountered several critical technical hurdles that required novel engineering solutions.
+
+### 5.1 Model Persistence & Git LFS
+
+**Problem:** The `HoaxClassifier` consistently returned random predictions (approx 50%) in the deployed environment, despite achieving 99% accuracy locally.
+**Root Cause:** The `.gitignore` file default configuration excluded the `models/` directory. Consequently, the fine-tuned LoRA adapter weights (`adapter_model.bin`) were never pushed to the repository, causing the system to silently fallback to the uninitialized base BERT model.
+**Solution:** We implemented a strict version control policy, using `git add -f` to force-track specific adapter files while keeping large base models ignored, ensuring reproducible deployments.
+
+### 5.2 The "Fruit Recipe" Search Anomaly
+
+**Problem:** When verifying Indonesian news articles, the web search module frequently returned irrelevant results (e.g., Spanish fruit recipes) instead of news corroboration.
+**Root Cause:** The search API default region was set to `wt-wt` (World). Querying for "Apel" (Apple - potentially a political rally name context) matched global culinary content.
+**Solution:** We implemented **Dynamic Language Detection**. The system now detects the article's language (ID/EN) and routes the search query to the specific region: `region='id-id'` for Indonesian, ensuring culturally relevant results.
+
+### 5.3 The Verification Paradox
+
+**Problem:** High-quality summaries that correctly included new, external facts (e.g., "Event scheduled for 2026") were flagged as "Hallucinations" with low confidence (8%).
+**Root Cause:** The Knowledge Graph (KG) was constructed _only_ from the input document. From the KG's perspective, any fact _not_ in the input text—even if true and found via web search—was a hallucination.
+**Solution:** We implemented **Knowledge Injection**. We modified the `ConstrainedSummarizer` to feed the `Crawl4AI` search snippets into the KG construction pipeline. This forces the Verifier to treat supported external facts as "Ground Truth," resolving the paradox.
+
+### 5.4 Visual Confidence Contradiction
+
+**Problem:** Users observed a confusing UI state where the Overall Confidence Score was high (Green), but individual claims were still flagged as "HALLUCINATION" (Red).
+**Root Cause:** The overall score logic had been updated to trust the web search, but the detailed claim-by-claim analyzer was still using strict input-text matching.
+**Solution:** We implemented a **Status Override** mechanism. When the "Relevance Boost" is triggered (high keyword overlap with search results), the system explicitly iterates through flagged claims and upgrades their status to `VERIFIED`, ensuring visual consistency across the report.
+
+### 5.5 Deployment Constraints
+
+**Problem:** Deploying the multi-model system (BERT + LLM + TTS + Crawl4AI) to free-tier cloud hosting caused immediate Out-Of-Memory (OOM) crashes.
+**Root Cause:** The default `workers=2` configuration in Gunicorn spawned multiple processes, each trying to load the 500MB+ model weights into RAM.
+**Solution:** We optimized the `Dockerfile` to use `--workers 1` and `--threads 8`. This "Single-Process, Multi-Thread" architecture shares the model memory across valid request threads, fitting the entire stack within the 2GB limit of standard free tiers.
+
+---
+
+## CHAPTER 6: DISCUSSION AND LIMITATIONS
+
+### 6.1 Performance Analysis
 
 **Trust Layer Effectiveness:**
 The 99.5% F1 score on hoax detection demonstrates that IndoBERT + LoRA can effectively learn Indonesian misinformation patterns. However, the adversarial evaluation (85% F1 with clickbait removed) reveals the model partially relies on surface-level cues. Future work should incorporate data augmentation to improve robustness.
@@ -376,24 +426,7 @@ The 20+ percentage point improvement in hallucination-free rate (61.3% → 89.5%
 **ROUGE vs. Faithfulness Trade-off:**
 Interestingly, KG-constrained summaries achieve slightly higher ROUGE scores than unconstrained abstractive, suggesting that factual grounding helps maintain relevance to source documents.
 
-### 5.2 Challenges
-
-1. **Low-Resource Indonesian NLP:**
-
-   - Limited pre-trained models compared to English
-   - Required custom rule engineering for entity extraction
-   - Date formats vary regionally (e.g., "15/01/2024" vs "15 Januari 2024")
-
-2. **Honorific Handling:**
-
-   - Indonesian titles (Bapak, Ibu, Presiden, Menteri) must be preserved for names
-   - Example: "Menteri Kesehatan Budi Gunadi Sadikin" → keep full title
-
-3. **Computational Constraints:**
-   - Designed for consumer GPUs (4GB VRAM minimum)
-   - Necessitated LoRA, gradient checkpointing, FP16 training
-
-### 5.3 Trade-offs
+### 5.4 Trade-offs
 
 | Approach                  | Pros                          | Cons                       |
 | ------------------------- | ----------------------------- | -------------------------- |
@@ -401,7 +434,7 @@ Interestingly, KG-constrained summaries achieve slightly higher ROUGE scores tha
 | Neural extraction         | Richer semantics              | Prone to hallucination     |
 | **Hybrid (our approach)** | Balanced accuracy/coverage    | Additional complexity      |
 
-### 5.4 Ethical Considerations
+### 5.5 Ethical Considerations
 
 - **Bias in training data:** Hoax datasets may over-represent certain political topics
 - **False positives:** Legitimate controversial opinions may be flagged
@@ -409,9 +442,9 @@ Interestingly, KG-constrained summaries achieve slightly higher ROUGE scores tha
 
 ---
 
-## CHAPTER 6: CONCLUSION AND FUTURE WORK
+## CHAPTER 7: CONCLUSION AND FUTURE WORK
 
-### 6.1 Conclusion
+### 7.1 Conclusion
 
 This project presents **TDSM (Trust-Driven Summarization Model)**, a comprehensive framework for Indonesian multi-document summarization that prioritizes factual accuracy through:
 
@@ -422,7 +455,7 @@ This project presents **TDSM (Trust-Driven Summarization Model)**, a comprehensi
 
 The system is deployable on consumer hardware (4GB GPU) and accessible through web interface, CLI, and voice assistant modes.
 
-### 6.2 Future Work
+### 7.2 Future Work
 
 1. **Real-time Processing:** Reduce latency for live news monitoring
 2. **Multimodal Fact-Checking:** Extend to image/video misinformation
@@ -499,11 +532,45 @@ playwright install chromium
 # 2. Configure API keys (.env file)
 GEMINI_API_KEY=your_key
 GROQ_API_KEY=your_key
+```
+
+## APPENDIX C: Technical Implementation Details
+
+**Core Techniques & Libraries:**
+
+1.  **Trust Layer**:
+
+    - **IndoBERT + LoRA**: Fine-tuning large language models on consumer hardware (PEFT library).
+    - **TF-IDF Vectorization**: Used for outlier detection and document similarity.
+    - **Adversarial Training**: Evaluation against clickbait-stripped samples.
+
+2.  **Knowledge Graph**:
+
+    - **SpaCy**: Dependency parsing for relation extraction.
+    - **NetworkX**: Graph construction and centrality algorithms.
+    - **Regex Patterns**: Custom Indonesian date/entity extraction.
+
+3.  **Summarization**:
+
+    - **TextRank**: Unsupervised graph-based extractive summarization.
+    - **Gemini API**: Instruction-tuned abstractive generation with factual constraints.
+    - **Indonesian Sastrawi**: Stemming library for accurate ROUGE metric calculation.
+
+4.  **Web & Interface**:
+    - **Flask**: Lightweight web server.
+    - **Crawl4AI**: Robust web scraping for live article fetching.
+    - **Kokoro TTS**: Local text-to-speech for accessibility.
 
 # 3. Run web interface
+
 python -m src.web_app
+
 # Open http://localhost:5000
 
 # 4. CLI evaluation
+
 python -m src.main --mode evaluate --model textrank --num_samples 100 --indo_rouge
+
+```
+
 ```
