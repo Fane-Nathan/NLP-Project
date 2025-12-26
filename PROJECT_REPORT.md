@@ -342,7 +342,7 @@ The KG-constrained generation significantly reduces hallucination by grounding t
 | :------------------------- | :--------: | :-------------------------------------- |
 | **Hoax Classification F1** | **99.05%** | Verified on OOD Test Set                |
 | **Valid Doc Retention**    | **100.0%** | Zero false positives in outlier test    |
-| Outlier Sensitivity        |    Low     | Conservative threshold favors retention |
+| Outlier Sensitivity        |    0.0%    | Conservative threshold favors retention |
 
 > **Analysis**: The Trust Layer prioritizes **safety** (100% precision on valid docs) to ensure critical news is never accidentally filtered. The low sensitivity to generic outliers (e.g., recipes) occurs because their vocabulary is statistically closer to the corpus centroid than the highly specific jargon in hoax articles. This design relies on the **99.05% F1 Hoax Classifier** to handle semantic filtering, treating the Outlier Detector purely as a safeguard against non-textual or garbage inputs.
 
