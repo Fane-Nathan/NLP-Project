@@ -586,10 +586,15 @@ RINGKASAN YANG DIPERBAIKI:"""
                 print(f"[ConstrainedSummarizer] Confidence boosted to {confidence:.2f}")
 
         # Add warning if confidence is low or verification failed
-        # If we boosted confidence via search, we can be more lenient with the warning
-        warning_threshold = 0.45 if has_relevance_boost else 0.6
+        # If we boosted confidence via search and found relevant keywords, we TRUST the summary.
+        # So we DISABLE the warning if has_relevance_boost is True.
         
-        if confidence < warning_threshold or verification_report.overall_status == VerificationStatus.UNVERIFIED:
+        should_show_warning = False
+        if not has_relevance_boost:
+            if confidence < 0.6 or verification_report.overall_status == VerificationStatus.UNVERIFIED:
+                should_show_warning = True
+        
+        if should_show_warning:
             warning_msg = "\n\n⚠️ **Note**: This summary reflects the article's claims, but our AI verification found inconsistencies or lack of external corroboration. Please verify with additional sources."
             # Only add if not already present
             if "⚠️" not in summary:
