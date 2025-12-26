@@ -668,7 +668,7 @@ Or leave empty to use demo documents about Indonesian vaccination program."></te
                     <option value="hybrid">Hybrid</option>
                     <option value="textrank">TextRank</option>
                     <option value="lexrank">LexRank</option>
-                    <option value="gemini">Gemini LLM</option>
+                    <option value="gemini">Abstractive</option>
                 </select>
 
                 <div class="checkbox-group">
@@ -723,6 +723,13 @@ Or leave empty to use demo documents about Indonesian vaccination program."></te
                 </details>
             </div>
 
+            <div class="section" id="corroboration-section" style="display:none;">
+                <label>Source Corroboration <span style="color: var(--fg-muted); text-transform: none;">(web search verification)</span></label>
+                <div id="corroboration-content" style="font-size: 0.85rem;">
+                    <div style="color: var(--fg-muted); padding: 0.5rem;">Searching for corroborating sources...</div>
+                </div>
+            </div>
+
             <footer>
                 <span>TDSM v1.0 // Knowledge Graph Verification Pipeline</span>
                 <span id="timestamp"></span>
@@ -732,28 +739,14 @@ Or leave empty to use demo documents about Indonesian vaccination program."></te
         <aside class="sidebar">
             <div class="sidebar-section">
                 <div class="sidebar-header">
-                    <span>Trust Layer Analysis</span>
-                    <span id="doc-count">0 docs</span>
+                    <span>Trustworthiness Analysis</span>
+                    <span id="trust-verdict" style="font-weight: 600;"></span>
                 </div>
-                <div class="stats-summary" id="stats-summary" style="display:none;">
-                    <div class="stat-item">
-                        <div class="stat-value accent" id="stat-valid">0</div>
-                        <div class="stat-label">Trusted</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-value" id="stat-filtered">0</div>
-                        <div class="stat-label">Filtered</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-value" id="stat-hoax">0</div>
-                        <div class="stat-label">Hoax</div>
-                    </div>
-                </div>
-                <div class="sidebar-content" id="documents-list">
+                <div class="sidebar-content" id="trust-analysis" style="padding: 1rem; line-height: 1.6; font-size: 0.85rem;">
                     <div class="empty-state">
-                        <div class="empty-state-icon">📄</div>
-                        <div>No documents analyzed yet</div>
-                        <div style="margin-top: 0.5rem; font-size: 0.7rem;">Execute the pipeline to see trust analysis</div>
+                        <div class="empty-state-icon">🔍</div>
+                        <div>No analysis yet</div>
+                        <div style="margin-top: 0.5rem; font-size: 0.7rem;">Execute the pipeline to see LLM trustworthiness analysis</div>
                     </div>
                 </div>
             </div>
@@ -783,98 +776,82 @@ Or leave empty to use demo documents about Indonesian vaccination program."></te
             });
         }
 
-        function renderDocuments(documents) {
-            const container = document.getElementById('documents-list');
-            const countEl = document.getElementById('doc-count');
-            const statsEl = document.getElementById('stats-summary');
+        function renderTrustAnalysis(analysis) {
+            const container = document.getElementById('trust-analysis');
+            const verdictEl = document.getElementById('trust-verdict');
 
-            if (!documents || documents.length === 0) {
+            if (!analysis || !analysis.summary) {
                 container.innerHTML = `
                     <div class="empty-state">
-                        <div class="empty-state-icon">📄</div>
-                        <div>No documents to display</div>
+                        <div class="empty-state-icon">🔍</div>
+                        <div>No analysis available</div>
                     </div>
                 `;
-                countEl.textContent = '0 docs';
-                statsEl.style.display = 'none';
+                verdictEl.textContent = '';
                 return;
             }
 
-            countEl.textContent = `${documents.length} docs`;
+            // Set verdict badge
+            const verdict = analysis.verdict || 'UNCERTAIN';
+            const verdictColors = {
+                'TRUSTABLE': 'var(--success)',
+                'UNCERTAIN': 'var(--warn)',
+                'NOT TRUSTABLE': 'var(--error)'
+            };
+            verdictEl.textContent = verdict;
+            verdictEl.style.color = verdictColors[verdict] || 'var(--fg-muted)';
 
-            // Calculate stats
-            const valid = documents.filter(d => d.status === 'valid').length;
-            const filtered = documents.filter(d => d.status !== 'valid').length;
-            const hoax = documents.filter(d => d.status === 'hoax').length;
-
-            document.getElementById('stat-valid').textContent = valid;
-            document.getElementById('stat-filtered').textContent = filtered;
-            document.getElementById('stat-hoax').textContent = hoax;
-            statsEl.style.display = 'grid';
-
-            container.innerHTML = documents.map((doc, i) => {
-                const isFiltered = doc.status !== 'valid';
-                const badgeClass = doc.status === 'valid' ? 'valid' :
-                                   doc.status === 'hoax' ? 'hoax' :
-                                   doc.status === 'outlier' ? 'outlier' : 'filtered';
-                const badgeText = doc.status === 'valid' ? 'TRUSTED' :
-                                  doc.status === 'hoax' ? 'HOAX' :
-                                  doc.status === 'outlier' ? 'OUTLIER' : 'FILTERED';
-
-                const credScore = doc.credibility_score !== undefined ? doc.credibility_score : null;
-                const hoaxProb = doc.hoax_probability !== undefined ? doc.hoax_probability : null;
-
-                const scoreClass = (score) => {
-                    if (score === null) return '';
-                    if (score >= 0.7) return 'good';
-                    if (score >= 0.4) return 'warn';
-                    return 'bad';
-                };
-
-                const hoaxClass = (prob) => {
-                    if (prob === null) return '';
-                    if (prob <= 0.3) return 'good';
-                    if (prob <= 0.6) return 'warn';
-                    return 'bad';
-                };
-
-                return `
-                    <div class="doc-card">
-                        <div class="doc-header">
-                            <span class="doc-index">DOC ${i + 1}</span>
-                            <span class="doc-badge ${badgeClass}">${badgeText}</span>
-                        </div>
-                        <div class="doc-text ${isFiltered ? 'filtered' : ''}">${escapeHtml(doc.text)}</div>
-                        ${credScore !== null || hoaxProb !== null ? `
-                        <div class="doc-scores">
-                            ${credScore !== null ? `
-                            <div class="doc-score">
-                                <span class="doc-score-label">Trust:</span>
-                                <span class="doc-score-value ${scoreClass(credScore)}">${(credScore * 100).toFixed(0)}%</span>
-                            </div>
-                            ` : ''}
-                            ${hoaxProb !== null ? `
-                            <div class="doc-score">
-                                <span class="doc-score-label">Hoax:</span>
-                                <span class="doc-score-value ${hoaxClass(hoaxProb)}">${(hoaxProb * 100).toFixed(0)}%</span>
-                            </div>
-                            ` : ''}
-                        </div>
-                        ${credScore !== null ? `
-                        <div class="progress-bar">
-                            <div class="progress-fill ${credScore < 0.4 ? 'low' : credScore < 0.7 ? 'medium' : ''}" style="width: ${credScore * 100}%"></div>
-                        </div>
-                        ` : ''}
-                        ` : ''}
-                    </div>
-                `;
-            }).join('');
+            // Render LLM analysis text (trim whitespace)
+            const cleanText = (analysis.summary || '').trim();
+            // Replace paragraph breaks with HTML
+            const formattedText = escapeHtml(cleanText)
+                .split('\\n\\n').join('</p><p style="margin-top: 0.8rem;">')
+                .split('\\n').join('<br>');
+            container.innerHTML = '<div style="color: var(--fg);">' + formattedText + '</div>';
         }
 
         function escapeHtml(text) {
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        async function fetchUrl() {
+            const urlInput = document.getElementById('url-input');
+            const fetchStatus = document.getElementById('fetch-status');
+            const inputArea = document.getElementById('input');
+            const url = urlInput.value.trim();
+            
+            if (!url) {
+                fetchStatus.textContent = 'Please enter a URL';
+                fetchStatus.style.color = 'var(--error)';
+                return;
+            }
+            
+            fetchStatus.textContent = 'Fetching...';
+            fetchStatus.style.color = 'var(--fg-muted)';
+            
+            try {
+                const response = await fetch('/api/fetch-url', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url })
+                });
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    fetchStatus.textContent = 'Error: ' + data.error;
+                    fetchStatus.style.color = 'var(--error)';
+                } else if (data.content) {
+                    inputArea.value = data.content;
+                    fetchStatus.textContent = 'Done!';
+                    fetchStatus.style.color = 'var(--success)';
+                }
+            } catch (err) {
+                fetchStatus.textContent = 'Network error: ' + err.message;
+                fetchStatus.style.color = 'var(--error)';
+            }
         }
 
         async function runPipeline() {
@@ -916,9 +893,9 @@ Or leave empty to use demo documents about Indonesian vaccination program."></te
 
                 output.classList.remove('loading');
 
-                // Render documents
-                if (data.documents) {
-                    renderDocuments(data.documents);
+                // Render trustworthiness analysis
+                if (data.trust_analysis) {
+                    renderTrustAnalysis(data.trust_analysis);
                 }
 
                 if (data.error) {
@@ -991,6 +968,31 @@ Or leave empty to use demo documents about Indonesian vaccination program."></te
                                 ${c.explanation ? `<div style="margin-top: 0.2rem; color: var(--fg-muted); font-size: 0.8rem;">📋 ${escapeHtml(c.explanation)}</div>` : ''}
                             </div>
                         `).join('');
+                    }
+                    
+                    // Render Source Corroboration
+                    if (data.corroboration_sources && data.corroboration_sources.length > 0) {
+                        const corSection = document.getElementById('corroboration-section');
+                        const corContent = document.getElementById('corroboration-content');
+                        corSection.style.display = 'block';
+                        
+                        const sources = data.corroboration_sources;
+                        corContent.innerHTML = `
+                            <div style="margin-bottom: 0.5rem; color: var(--success);">
+                                ✓ Found ${sources.length} corroborating sources
+                            </div>
+                            ${sources.map((s, i) => `
+                                <div style="padding: 0.5rem; background: var(--bg-tertiary); border-radius: 4px; margin-bottom: 0.5rem;">
+                                    <div style="font-weight: 600; color: var(--accent);">
+                                        <a href="${escapeHtml(s.url)}" target="_blank" style="color: var(--accent); text-decoration: none;">
+                                            ${escapeHtml(s.title || 'Source ' + (i + 1))}
+                                        </a>
+                                    </div>
+                                    <div style="font-size: 0.75rem; color: var(--fg-muted);">${escapeHtml(s.source || s.domain || '')}</div>
+                                    ${s.snippet ? `<div style="margin-top: 0.3rem; color: var(--fg); font-size: 0.8rem;">${escapeHtml(s.snippet.substring(0, 150))}...</div>` : ''}
+                                </div>
+                            `).join('')}
+                        `;
                     }
                 }
             } catch (err) {
@@ -1198,8 +1200,13 @@ def summarize():
                 else:
                     mode = SummarizationMode.HYBRID
 
+                # Get Gemini API key from environment for hybrid/abstractive modes
+                import os
+                gemini_key = os.environ.get('GEMINI_API_KEY')
+                
                 summarizer = ConstrainedSummarizer(
                     kg=kg,
+                    gemini_api_key=gemini_key,
                     max_refinement_iterations=3,
                     min_verification_rate=0.7
                 )
@@ -1234,6 +1241,64 @@ def summarize():
                         ]
                     }
                 }
+                
+                # Generate LLM trustworthiness analysis with web search grounding
+                try:
+                    from src.models.gemini_summarizer import GeminiSummarizer
+                    from src.tools.enhanced_search import EnhancedSearcher
+                    
+                    llm = GeminiSummarizer()
+                    combined_text = ' '.join(filtered_docs)
+                    
+                    # Generate search query from article content
+                    search_query = llm.generate_search_query(combined_text[:1000])
+                    print(f"[Web Search] Query: {search_query}")
+                    
+                    # Search for related articles to corroborate claims
+                    search_results = []
+                    try:
+                        searcher = EnhancedSearcher(max_results=5)
+                        raw_results = searcher.search_sync(search_query, max_results=5)
+                        search_results = [
+                            {
+                                'title': r.title,
+                                'source': r.domain,
+                                'url': r.url,
+                                'snippet': r.snippet
+                            }
+                            for r in raw_results
+                        ]
+                        print(f"[Web Search] Found {len(search_results)} related sources")
+                    except Exception as se:
+                        print(f"[Web Search] Search error: {se}")
+                    
+                    # Verify article with web search context
+                    trust_result = llm.verify_article(
+                        title="Article Analysis",
+                        content=combined_text,
+                        hoax_probability=doc_analysis[0].get('hoax_probability') if doc_analysis else None,
+                        search_results=search_results
+                    )
+                    result['trust_analysis'] = trust_result
+                    result['corroboration_sources'] = search_results  # Add web search sources
+                    
+                    # Override confidence with LLM verdict (more accurate for abstractive)
+                    if trust_result and trust_result.get('verdict'):
+                        verdict_confidence = {
+                            'TRUSTABLE': 0.85,
+                            'UNCERTAIN': 0.50,
+                            'NOT TRUSTABLE': 0.15
+                        }
+                        result['metrics']['confidence'] = verdict_confidence.get(
+                            trust_result['verdict'], 0.50
+                        )
+                        result['metrics']['hallucination_free'] = trust_result['verdict'] == 'TRUSTABLE'
+                        
+                except Exception as e:
+                    print(f"Trust analysis error: {e}")
+                    result['trust_analysis'] = None
+                    result['corroboration_sources'] = []
+                    
             except ImportError:
                 result = _basic_summarize(filtered_docs, model, input_doc_count, doc_analysis)
         else:
@@ -1279,14 +1344,59 @@ def _basic_summarize(documents: list, model: str, input_doc_count: int, doc_anal
     except Exception as e:
         summary = f"Summarization failed: {str(e)}"
 
+    # Generate LLM trustworthiness analysis with web search grounding
+    trust_analysis = None
+    try:
+        from src.models.gemini_summarizer import GeminiSummarizer
+        from src.tools.enhanced_search import EnhancedSearcher
+        
+        llm = GeminiSummarizer()
+        
+        # Generate search query and find related sources
+        search_query = llm.generate_search_query(combined_text[:1000])
+        search_results = []
+        try:
+            searcher = EnhancedSearcher(max_results=5)
+            raw_results = searcher.search_sync(search_query, max_results=5)
+            search_results = [
+                {'title': r.title, 'source': r.domain, 'url': r.url, 'snippet': r.snippet}
+                for r in raw_results
+            ]
+        except Exception as se:
+            print(f"[Web Search] Error: {se}")
+        
+        trust_result = llm.verify_article(
+            title="Article Analysis",
+            content=combined_text,
+            hoax_probability=doc_analysis[0].get('hoax_probability') if doc_analysis else None,
+            search_results=search_results
+        )
+        trust_analysis = trust_result
+    except Exception as e:
+        print(f"Trust analysis error: {e}")
+
+    # Calculate confidence from LLM verdict
+    confidence = None
+    hallucination_free = None
+    if trust_analysis and trust_analysis.get('verdict'):
+        verdict_confidence = {
+            'TRUSTABLE': 0.85,
+            'UNCERTAIN': 0.50,
+            'NOT TRUSTABLE': 0.15
+        }
+        confidence = verdict_confidence.get(trust_analysis['verdict'], 0.50)
+        hallucination_free = trust_analysis['verdict'] == 'TRUSTABLE'
+
     return {
         'summary': summary,
         'documents': doc_analysis,
+        'trust_analysis': trust_analysis,
+        'corroboration_sources': search_results,
         'metrics': {
             'input_docs': input_doc_count,
             'filtered_docs': len(documents),
-            'confidence': None,
-            'hallucination_free': None
+            'confidence': confidence,
+            'hallucination_free': hallucination_free
         }
     }
 
@@ -1343,7 +1453,7 @@ def run_server(host: str = None, port: int = 5000, debug: bool = False):
     print(f"\n{'='*60}")
     print("TDSM Web Playground")
     print(f"{'='*60}")
-    print(f"\n→ Open http://localhost:{port} in your browser\n")
+    print(f"\n-> Open http://localhost:{port} in your browser\n")
     app.run(host=host, port=port, debug=debug)
 
 

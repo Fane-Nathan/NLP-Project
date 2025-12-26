@@ -203,15 +203,24 @@ class ConstrainedSummarizer:
         return self._lexrank
     
     def _get_gemini(self):
-        """Lazy load Gemini summarizer."""
-        if self._gemini_summarizer is None and self.gemini_api_key:
-            try:
-                from src.models.gemini_summarizer import GeminiSummarizer
-                self._gemini_summarizer = GeminiSummarizer(
-                    api_key=self.gemini_api_key
-                )
-            except Exception as e:
-                print(f"[Warning] Gemini not available: {e}")
+        """Lazy load Gemini summarizer (with Groq fallback)."""
+        if self._gemini_summarizer is None:
+            # Load both API keys from environment for fallback support
+            import os
+            gemini_key = self.gemini_api_key or os.environ.get('GEMINI_API_KEY')
+            groq_key = os.environ.get('GROQ_API_KEY')
+            
+            if gemini_key or groq_key:
+                try:
+                    from src.models.gemini_summarizer import GeminiSummarizer
+                    # GeminiSummarizer already has built-in Groq fallback
+                    self._gemini_summarizer = GeminiSummarizer(
+                        api_key=gemini_key,
+                        groq_api_key=groq_key,
+                        provider="auto"  # Try Groq first, then Gemini
+                    )
+                except Exception as e:
+                    print(f"[Warning] LLM not available: {e}")
         return self._gemini_summarizer
     
     def build_kg_from_documents(
@@ -335,44 +344,41 @@ class ConstrainedSummarizer:
         gemini = self._get_gemini()
         
         if not gemini:
-            print("[Warning] Gemini not available, falling back to extractive")
+            print("[Warning] LLM not available, falling back to extractive")
             return self._generate_extractive(documents, 5, "textrank")
         
         # Build grounding context
         fact_context = self._build_fact_context(grounding_facts)
         
-        # Create constrained prompt
-        grounded_prompt = f"""Anda adalah asisten yang merangkum berita Indonesia.
+        # Create constrained prompt - DIRECT summarization instruction
+        grounded_prompt = f"""You are a news summarization assistant.
 
-PENTING: Anda HANYA boleh menggunakan informasi yang ada dalam FAKTA TERVERIFIKASI dan DOKUMEN SUMBER.
-Jangan menambahkan informasi yang tidak ada dalam sumber.
-Jangan mengubah nama, tanggal, atau angka.
-Jangan menyimpulkan hal yang tidak disebutkan secara eksplisit.
+TASK: Create a summary of the following documents.
 
-{fact_context}
+IMPORTANT RULES:
+1. Write the summary in the SAME LANGUAGE as the source documents
+2. ONLY use information present in the source documents
+3. Do not add information not in the source
+4. Do not change names, dates, or numbers
+5. Do not add commentary, analysis, or personal opinions
+6. Write the summary directly without introduction
 
-DOKUMEN SUMBER:
-{chr(10).join([f"[{i+1}] {doc[:500]}..." for i, doc in enumerate(documents[:5])])}
+{fact_context if fact_context else ''}
 
-{f'FOKUS: {query}' if query else ''}
+SOURCE DOCUMENTS:
+{chr(10).join([f"[{i+1}] {doc}" for i, doc in enumerate(documents[:5])])}
 
-INSTRUKSI:
-Buat ringkasan 2-3 paragraf yang:
-1. HANYA berdasarkan fakta terverifikasi dan dokumen sumber
-2. Menyebutkan entitas dengan nama yang benar
-3. Menyebutkan tanggal dengan akurat
-4. Tidak menyimpulkan atau menambahkan informasi baru
+{f'FOCUS: {query}' if query else ''}
 
-RINGKASAN:"""
+Write a 2-3 paragraph summary in the same language as the source:
+"""
 
         try:
-            result = gemini.summarize(
-                [grounded_prompt],  # Pass as single doc
-                style="default"
-            )
-            return result.summary
+            # Call LLM directly to avoid the chatty system prompt in summarize()
+            summary = gemini._call_llm(grounded_prompt, system_prompt=None)
+            return summary
         except Exception as e:
-            print(f"[Error] Gemini generation failed: {e}")
+            print(f"[Error] LLM generation failed: {e}")
             return self._generate_extractive(documents, 5, "textrank")
     
     def _refine_summary(
